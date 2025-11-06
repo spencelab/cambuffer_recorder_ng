@@ -24,4 +24,6 @@ Ok what parameters do we need to utilize for Ximea looking at the old code:
   xiState.context_valid = false;
 ```
 
-  
+DEFAULT BAYER APPEARS TO BE GBRG!!!!
+
+      BayerPattern pattern = BayerPattern::GBRG; // default
