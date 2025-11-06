@@ -103,6 +103,7 @@ int main(int argc, char** argv)
     xiSetParamInt(cam, XI_PRM_WIDTH, width);
     xiSetParamInt(cam, XI_PRM_HEIGHT, height);
     xiSetParamInt(cam, XI_PRM_EXPOSURE, 2000);
+    // could do gain...
     //xiSetParamInt(cam, XI_PRM_BUFFERS_QUEUE_SIZE, 2);
 
     print_cam_cfg(cam);
