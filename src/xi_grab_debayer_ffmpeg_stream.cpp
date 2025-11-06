@@ -98,12 +98,12 @@ int main(int argc, char** argv)
     XI_RETURN stat = xiOpenDevice(0, &cam);
     if (stat != XI_OK) { std::cerr << "xiOpenDevice failed\n"; return 1; }
 
-    int width = 2048, height = 700;
+    int width = 2048, height = 704;
+    xiSetParamInt(cam, XI_PRM_IMAGE_DATA_FORMAT, XI_RAW8);
     xiSetParamInt(cam, XI_PRM_WIDTH, width);
     xiSetParamInt(cam, XI_PRM_HEIGHT, height);
-    xiSetParamInt(cam, XI_PRM_IMAGE_DATA_FORMAT, XI_RAW8);
     xiSetParamInt(cam, XI_PRM_EXPOSURE, 2000);
-    xiSetParamInt(cam, XI_PRM_BUFFERS_QUEUE_SIZE, 2);
+    //xiSetParamInt(cam, XI_PRM_BUFFERS_QUEUE_SIZE, 2);
 
     print_cam_cfg(cam);
 
@@ -117,18 +117,40 @@ int main(int argc, char** argv)
     int out_w = actual_w / 2, out_h = actual_h / 2;
     size_t rgb_bytes = static_cast<size_t>(out_w) * out_h * 3;
 
+    std::cout << "==== Camera ROI and Debayer Config ====\n";
+    std::cout << "Sensor ROI: " << actual_w << " x " << actual_h << "\n";
+    std::cout << "DebayerHalf Output: " << out_w << " x " << out_h
+              << " (" << rgb_bytes << " bytes per RGB frame)\n";
+    std::cout << "=======================================\n";
+
     std::vector<uint8_t> debayer_buf(rgb_bytes);
 
     char cmd[512];
+    /* blurry, fast, small files and 160fps */
     snprintf(cmd, sizeof(cmd),
              "ffmpeg -f rawvideo -pix_fmt bgr24 -s %dx%d -r 100 "
              "-i pipe:0 -y -threads 0 -preset ultrafast "
              "-c:v libx264 -crf 18 -pix_fmt yuv420p %s",
              out_w, out_h, outfile);
+    
+    // super slow huge files!
+    //-preset fast -crf 0
+    /*
+    snprintf(cmd, sizeof(cmd),
+             "ffmpeg -f rawvideo -pix_fmt bgr24 -s %dx%d -r 100 "
+             "-i pipe:0 -y -threads 0 -preset fast "
+             "-c:v libx264 -crf 0 -pix_fmt yuv420p %s",
+             out_w, out_h, outfile);    */
     FILE* ffmpeg = popen(cmd, "w");
     if (!ffmpeg) { perror("popen"); xiCloseDevice(cam); return 1; }
 
     xiStartAcquisition(cam);
+
+    int padx = 0;
+    if (xiGetParamInt(cam, XI_PRM_PADDING_X, &padx) != XI_OK)
+        padx = 0;  // fallback silently
+
+    const int stride = width + padx;
 
     double t_grab=0, t_proc=0, t_enc=0;
     for (int i=0; i<num_frames; ++i) {
@@ -137,14 +159,13 @@ int main(int argc, char** argv)
         if (stat != XI_OK || !img.bp) { std::cerr << "xiGetImage failed\n"; break; }
         auto t1 = high_resolution_clock::now();
 
-        int padx=0;
-        xiGetParamInt(cam, XI_PRM_PADDING_X, &padx);
-        int stride = img.width + padx;
-
         debayer_half_color(static_cast<uint8_t*>(img.bp),
                            img.width, img.height, stride,
                            debayer_buf.data(), pattern);
         auto t2 = high_resolution_clock::now();
+
+        //std::cout << "Writing " << rgb_bytes
+        //  << " bytes (" << out_w << "x" << out_h << ")\n";
 
         size_t written = fwrite(debayer_buf.data(), 1, rgb_bytes, ffmpeg);
         if (written != rgb_bytes) { std::cerr << "pipe write failed\n"; break; }
