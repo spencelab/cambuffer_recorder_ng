@@ -5,6 +5,7 @@
 #include <cstring>
 #include <thread>
 #include <csignal>
+#include <algorithm>  // for std::min
 #include <m3api/xiApi.h>
 
 #ifndef XI_PRM_PADDING_X
@@ -59,6 +60,83 @@ inline void debayer_half_color(const uint8_t* src, int src_w, int src_h, int src
         }
     }
 }
+
+#include <algorithm>  // for std::min
+
+// Additive-binning half debayer with color output.
+// Accepts RAW8 Bayer buffer and outputs RGB24 (BGR order for FFmpeg).
+void debayer_half_additive_color(
+    const uint8_t* src,
+    int w, int h, int stride,
+    uint8_t* dst,
+    BayerPattern pattern)
+{
+    int out_w = w / 2;
+    int out_h = h / 2;
+
+    for (int y = 0; y < out_h; ++y) {
+        const uint8_t* row0 = src + (2 * y) * stride;
+        const uint8_t* row1 = src + (2 * y + 1) * stride;
+        uint8_t* out = dst + y * out_w * 3;
+
+        for (int x = 0; x < out_w; ++x) {
+            int x2 = x * 2;
+
+            uint8_t r = 0, g = 0, b = 0;
+            switch (pattern) {
+                case BayerPattern::GBRG: {
+                    uint8_t G1 = row0[x2];
+                    uint8_t R  = row0[x2 + 1];
+                    uint8_t B  = row1[x2];
+                    uint8_t G2 = row1[x2 + 1];
+                    g = (G1 + G2) >> 1;  // average both greens
+                    r = R;
+                    b = B;
+                    break;
+                }
+                case BayerPattern::GRBG: {
+                    uint8_t G1 = row0[x2 + 1];
+                    uint8_t R  = row0[x2];
+                    uint8_t B  = row1[x2 + 1];
+                    uint8_t G2 = row1[x2];
+                    g = (G1 + G2) >> 1;
+                    r = R;
+                    b = B;
+                    break;
+                }
+                case BayerPattern::RGGB: {
+                    uint8_t R1 = row0[x2];
+                    uint8_t G1 = row0[x2 + 1];
+                    uint8_t G2 = row1[x2];
+                    uint8_t B1 = row1[x2 + 1];
+                    r = R1;
+                    g = (G1 + G2) >> 1;
+                    b = B1;
+                    break;
+                }
+                case BayerPattern::BGGR: {
+                    uint8_t B1 = row0[x2];
+                    uint8_t G1 = row0[x2 + 1];
+                    uint8_t G2 = row1[x2];
+                    uint8_t R1 = row1[x2 + 1];
+                    r = R1;
+                    g = (G1 + G2) >> 1;
+                    b = B1;
+                    break;
+                }
+            }
+
+            // For additive binning instead of averaging brightness:
+            // g = std::min(G1 + G2, 255);
+
+            out[3 * x + 0] = b;
+            out[3 * x + 1] = g;
+            out[3 * x + 2] = r;
+        }
+    }
+}
+
+
 
 // ===============================
 //   Print camera parameters
@@ -163,6 +241,11 @@ int main(int argc, char** argv)
         debayer_half_color(static_cast<uint8_t*>(img.bp),
                            img.width, img.height, stride,
                            debayer_buf.data(), pattern);
+        //debayer_half_additive_color(src, w, h, stride, dst, BayerPattern::GBRG);
+        debayer_half_additive_color(static_cast<uint8_t*>(img.bp),
+                           img.width, img.height, stride,
+                           debayer_buf.data(), pattern);
+
         auto t2 = high_resolution_clock::now();
 
         //std::cout << "Writing " << rgb_bytes
