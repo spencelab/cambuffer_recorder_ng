@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>cambuffer_recorder_ng</name>
+  <version>0.0.1</version>
+  <description>ROS2 lifecycle camera buffer recorder with GenTL/FakeCamera backends</description>
+  <maintainer email="spence@temple.edu">Andrew Spence</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>message_generation</depend>
+  <depend>message_runtime</depend>
+
+  <exec_depend>ffmpeg</exec_depend>
+  <exec_depend>libavcodec-dev</exec_depend>
+  <exec_depend>libavformat-dev</exec_depend>
+  <exec_depend>libavutil-dev</exec_depend>
+  <exec_depend>libswscale-dev</exec_depend>
+  <exec_depend>libopencv-dev</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+

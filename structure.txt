@@ -1,0 +1,30 @@
+ros2_ws/src/cambuffer_recorder_ng/
+├── CMakeLists.txt
+├── package.xml
+├── include/cambuffer_recorder_ng/
+│   ├── ICamera.hpp
+│   ├── FakeCamera.hpp
+│   ├── BufferPool.hpp
+│   ├── FfmpegWriter.hpp
+│   ├── Recorder.hpp
+│   ├── CamBufferRecorderNode.hpp
+│   └── DebayerHalf.hpp
+├── src/
+│   ├── FakeCamera.cpp
+│   ├── BufferPool.cpp
+│   ├── FfmpegWriter.cpp
+│   ├── Recorder.cpp
+│   ├── CamBufferRecorderNode.cpp
+│   └── main.cpp
+├── msg/
+│   ├── Camtrig.msg
+│   └── Camstatus.msg
+├── action/
+│   ├── DumpBuffer.action
+│   ├── StartStreaming.action
+│   └── StopStreaming.action
+├── launch/
+│   └── fakecam.launch.py
+└── config/
+    └── fakecam.yaml
+
