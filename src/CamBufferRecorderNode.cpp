@@ -12,8 +12,8 @@ namespace cambuffer_recorder_ng
 CamBufferRecorderNode::CamBufferRecorderNode()
     : rclcpp_lifecycle::LifecycleNode("cambuffer_recorder_ng")
 {
-    declare_parameter<int>("width", 640);
-    declare_parameter<int>("height", 480);
+    declare_parameter<int>("width", 320);
+    declare_parameter<int>("height", 240);
     declare_parameter<int>("fps", 30);
     declare_parameter<std::string>("output_path", "/home/spencelab/fakecam_test.mp4");
 
@@ -106,25 +106,41 @@ CamBufferRecorderNode::on_deactivate(const rclcpp_lifecycle::State &)
 
 void CamBufferRecorderNode::run_loop()
 {
-    uint8_t *data = nullptr;
-    size_t size = 0;
-    uint64_t ts = 0;
-    int w = 0, h = 0, stride = 0;
+    uint8_t* data;
+    size_t size;
+    int w, h, stride;
+    uint64_t ts;
+
+    size_t frame_count = 0;
+    auto last_heartbeat = std::chrono::steady_clock::now();
 
     while (running_ && rclcpp::ok()) {
-        try {
-            if (camera_->grab(data, size, ts, w, h, stride, 100)) {
-                RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
-                    "Frame ts: %lu  (%dx%d, %zu bytes)", ts, w, h, size);
-                // TODO: forward frame to Recorder / FfmpegWriter here.
-            }
+        if (camera_->grab(data, size, ts, w, h, stride, 100)) {
+            frame_count++;
+
+            // Write frame to recorder if active
+            // (you can skip this if already handled inside Recorder)
+            // recorder_->push_frame(data, size, w, h, ts);
+
+            // Log one frame timestamp every 2s (already there)
+            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
+                                 "Frame ts: %lu (%dx%d, %zu bytes)",
+                                 ts, w, h, size);
         }
-        catch (const std::exception &e) {
-            RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000,
-                "Grab error: %s", e.what());
+
+        // --- Heartbeat: print FPS every second ---
+        auto now = std::chrono::steady_clock::now();
+        double elapsed = std::chrono::duration<double>(now - last_heartbeat).count();
+        if (elapsed >= 1.0) {
+            double fps_est = frame_count / elapsed;
+            RCLCPP_INFO(get_logger(), "Heartbeat: %.2f fps (%.0f frames in %.2fs)",
+                        fps_est, (double)frame_count, elapsed);
+            frame_count = 0;
+            last_heartbeat = now;
         }
     }
 }
+
 
 }  // namespace cambuffer_recorder_ng
 
