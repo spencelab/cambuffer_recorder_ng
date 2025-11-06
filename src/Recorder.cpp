@@ -1,27 +1,20 @@
 #include "cambuffer_recorder_ng/Recorder.hpp"
 #include <iostream>
-#include <chrono>
-#include <thread>
 
-using namespace std::chrono;
+namespace cambuffer_recorder_ng {
 
-namespace cambuffer_recorder_ng
-{
-
-bool Recorder::start(const std::shared_ptr<FakeCamera>& cam,
-                     const std::string& filename,
-                     int width, int height, int fps)
+bool Recorder::start(std::function<bool(uint8_t*&, size_t&, uint64_t&, int&, int&, int&)> grab_fn,
+                     const std::string& filename, int width, int height, int fps)
 {
     if (running_) return false;
-
-    cam_ = cam;
+    grab_fn_ = std::move(grab_fn);
     filename_ = filename;
     width_ = width;
     height_ = height;
     fps_ = fps;
 
     if (!writer_.open(filename_, width_, height_, fps_, "libx264")) {
-        std::cerr << "Recorder: failed to open FFmpeg writer for " << filename_ << "\n";
+        std::cerr << "Recorder: failed to open FFmpeg writer\n";
         return false;
     }
 
@@ -30,24 +23,36 @@ bool Recorder::start(const std::shared_ptr<FakeCamera>& cam,
     return true;
 }
 
-void Recorder::stop()
+void Recorder::loop()
 {
-    running_ = false;
-    if (worker_.joinable())
-        worker_.join();
+    uint8_t* data = nullptr;
+    size_t size = 0;
+    uint64_t ts = 0;
+    int w = 0, h = 0, stride = 0;
+
+    while (running_) {
+        if (!grab_fn_) break;
+
+        bool ok = false;
+        try {
+            ok = grab_fn_(data, size, ts, w, h, stride);
+        } catch (...) {
+            ok = false;
+        }
+
+        if (!ok) continue;
+
+        writer_.write_frame(data, stride);
+    }
+
     writer_.close();
 }
 
-void Recorder::loop()
+void Recorder::stop()
 {
-    uint8_t* data;
-    int w, h, stride;
-    uint64_t ts;
-
-    while (running_ && cam_ && cam_->grab(data, w, h, stride, ts)) {
-        writer_.write_frame(data, stride);
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    running_ = false;
+    if (worker_.joinable()) worker_.join();
+    writer_.close();
 }
 
 } // namespace cambuffer_recorder_ng

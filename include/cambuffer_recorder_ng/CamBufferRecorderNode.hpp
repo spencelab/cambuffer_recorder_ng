@@ -6,7 +6,9 @@
 #include <atomic>
 #include <memory>
 
+#include "cambuffer_recorder_ng/XiCamera.hpp"
 #include "cambuffer_recorder_ng/FakeCamera.hpp"
+#include "cambuffer_recorder_ng/GenTLCamera.hpp"
 #include "cambuffer_recorder_ng/Recorder.hpp"
 
 namespace cambuffer_recorder_ng
@@ -35,7 +37,10 @@ protected:
 private:
     void run_loop();
 
-    std::shared_ptr<FakeCamera> camera_;
+    std::shared_ptr<ICamera> camera_;
+    //std::shared_ptr<XiCamera> camera_;
+    //std::shared_ptr<GenTLCamera> camera_;
+    //std::shared_ptr<FakeCamera> camera_;
     std::shared_ptr<Recorder> recorder_;
 
     std::thread worker_;

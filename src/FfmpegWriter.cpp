@@ -1,5 +1,6 @@
 #include "cambuffer_recorder_ng/FfmpegWriter.hpp"
 #include <iostream>
+#include "rclcpp/rclcpp.hpp"
 
 namespace cambuffer_recorder_ng {
 
@@ -54,7 +55,8 @@ bool FfmpegWriter::open(const std::string& filename,
         }
     }
 
-    avformat_write_header(fmt_ctx_, nullptr);
+    if (avformat_write_header(fmt_ctx_, nullptr) < 0)
+    RCLCPP_WARN(rclcpp::get_logger("FfmpegWriter"), "Failed to write FFmpeg header");
 
     // Prepare scaling context from RGB24 to YUV420P
     sws_ctx_ = sws_getContext(width_, height_, AV_PIX_FMT_RGB24,

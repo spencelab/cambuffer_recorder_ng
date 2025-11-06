@@ -1,25 +1,21 @@
 #pragma once
-#include <cstddef>
-#include <string>
 #include <cstdint>
+#include <cstddef>
+#include <stdexcept>
 
 namespace cambuffer_recorder_ng {
 
-struct FrameView {
-  uint8_t* data;
-  size_t size_bytes;
-  int width, height, stride;
-  uint64_t timestamp_ns;
-};
-
 class ICamera {
 public:
-  virtual ~ICamera() = default;
-  virtual void open() = 0;
-  virtual void close() = 0;
-  virtual void start() = 0;
-  virtual void stop() = 0;
-  virtual bool grab(FrameView& out, int timeout_ms) = 0;
+    virtual ~ICamera() = default;
+
+    virtual void open(int device_index = 0) = 0;
+    virtual void start() = 0;
+    virtual void stop() = 0;
+    virtual void close() {}
+
+    virtual bool grab(uint8_t*& data, size_t& size, uint64_t& ts,
+                      int& width, int& height, int& stride, int timeout_ms = 100) = 0;
 };
 
 } // namespace cambuffer_recorder_ng
