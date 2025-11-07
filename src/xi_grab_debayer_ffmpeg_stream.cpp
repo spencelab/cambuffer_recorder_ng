@@ -1,3 +1,9 @@
+// g++ xi_grab_debayer_ffmpeg_stream.cpp -o xi_grab_debayer_ffmpeg_stream     -I/opt/XIMEA/include -lm3api     $(pkg-config --cflags --libs libavcodec libavformat libavutil libswscale)     -pthread
+// OK SO WITH DEBAYER HALF COLOR YOU GET A GOOD IMAGE AFTER RESET OF CAMERA
+// SETTINGS IF YOU DO DEBAYER HALF COLOR WITH GBRG
+// AND THEN PASS THAT TO FFMPEG TO BECOME BGR24
+// SO ACTUALLY CAMERA IS GIVING GBRG, CODE MAKES BGR24...
+// NOTE IMAGE LOOKS GREEN STILL NEEDS A WHITE BALANCE OF R=1.28, G=1, B=1.43 or more R.
 #include <iostream>
 #include <vector>
 #include <chrono>
@@ -242,9 +248,9 @@ int main(int argc, char** argv)
                            img.width, img.height, stride,
                            debayer_buf.data(), pattern);
         //debayer_half_additive_color(src, w, h, stride, dst, BayerPattern::GBRG);
-        debayer_half_additive_color(static_cast<uint8_t*>(img.bp),
-                           img.width, img.height, stride,
-                           debayer_buf.data(), pattern);
+        //debayer_half_additive_color(static_cast<uint8_t*>(img.bp),
+        //                   img.width, img.height, stride,
+        //                   debayer_buf.data(), pattern);
 
         auto t2 = high_resolution_clock::now();
 
