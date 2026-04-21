@@ -254,3 +254,58 @@ Rolling size: 2–4 GB per chunk is a sweet spot—fast to index, quick to salva
 
 If you want, I can spit out the same table for 120 fps or 250 fps, or plug in your exact ROI and target fps.
 ```
+
+notes:
+```
+
+Streaming Calcs:
+
+Can we stream 100 fps 2048x704 to disk in 8bpp?
+
+In [1]: 2048*700*100
+Out[1]: 143360000
+
+
+In [1]: 2048*700*100
+Out[1]: 143360000
+
+In [2]: 2048*700*100/(1024*1024)
+Out[2]: 136.71875
+
+
+MiB/S
+
+136 Megabytes per second.
+
+
+bytes per second.
+
+Sata sequential write bandwidth: call it 400MB/s. (450-650MB/s).
+
+So we migth get away with it.
+
+How long could we record for?
+
+At most you might want to do like 5 or 10 minutes of treadmill or reaching. Well reaching you might want more.
+
+
+Treadmill:
+
+10 minutes:
+10*60*136=81600 MB.
+
+Yeah I mean that's an 82GB file. Would take awhile to transcode, but you could do it...
+
+Need to handle dropped frames.
+
+Let's say you do 5 minutes, that'd be better.
+
+Try it, see if the system can handle it.
+
+Write the frame num on it. How many frames is that?
+
+60,000 frames, not so bad.
+
+
+```
+
