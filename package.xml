@@ -3,7 +3,7 @@
   <name>cambuffer_recorder_ng</name>
   <version>0.0.1</version>
   <description>ROS2 lifecycle camera buffer recorder with GenTL/FakeCamera backends</description>
-  <maintainer email="spence@temple.edu">Andrew Spence</maintainer>
+  <maintainer email="aspence@temple.edu">Andrew Spence</maintainer>
   <license>BSD-3-Clause</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
