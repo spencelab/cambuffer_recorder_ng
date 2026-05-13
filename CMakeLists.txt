@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.16)
 project(cambuffer_recorder_ng)
 
 # =========================
+#  C++ standard
+# =========================
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# =========================
 #  ROS2 and dependencies
 # =========================
 find_package(ament_cmake REQUIRED)
@@ -15,75 +21,137 @@ find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 
 # =========================
-#  FFmpeg (via pkg-config)
+#  FFmpeg via pkg-config
 # =========================
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-    libavcodec libavformat libavutil libswscale)
+  libavcodec
+  libavformat
+  libavutil
+  libswscale
+)
 
 # =========================
-#  XIMEA Camera SDK (Linux)
+#  Backend source lists
+# =========================
+set(CAMERA_SOURCES
+  src/FakeCamera.cpp
+)
+
+set(CAMERA_INCLUDE_DIRS "")
+set(CAMERA_LIBS "")
+set(CAMERA_COMPILE_DEFS "")
+
+# =========================
+#  XIMEA Camera SDK detection
 # =========================
 find_path(XIMEA_INCLUDE_DIR
   NAMES xiApi.h
-  PATHS /opt/XIMEA/include /usr/include
+  PATHS
+    /opt/XIMEA/include
+    /usr/include
+    /usr/local/include
 )
 
 find_library(XIMEA_LIB
   NAMES m3api
-  PATHS /usr/lib /usr/lib64 /opt/XIMEA/lib /opt/XIMEA/lib64
+  PATHS
+    /opt/XIMEA/lib
+    /opt/XIMEA/lib64
+    /usr/lib
+    /usr/lib64
+    /usr/local/lib
 )
 
-if (XIMEA_INCLUDE_DIR AND XIMEA_LIB)
-  message(STATUS "Found XIMEA SDK: ${XIMEA_LIB}")
-  set(HAVE_XIMEA TRUE)
+if(XIMEA_INCLUDE_DIR AND XIMEA_LIB)
+  message(STATUS "XIMEA SDK found")
+  message(STATUS "  XIMEA include: ${XIMEA_INCLUDE_DIR}")
+  message(STATUS "  XIMEA library: ${XIMEA_LIB}")
+
+  list(APPEND CAMERA_SOURCES
+    src/XiCamera.cpp
+  )
+
+  list(APPEND CAMERA_INCLUDE_DIRS
+    ${XIMEA_INCLUDE_DIR}
+  )
+
+  list(APPEND CAMERA_LIBS
+    ${XIMEA_LIB}
+  )
+
+  list(APPEND CAMERA_COMPILE_DEFS
+    HAVE_XIMEA=1
+  )
 else()
-  message(WARNING "XIMEA SDK not found or incomplete; XiCamera will not link.")
-  set(HAVE_XIMEA FALSE)
+  message(STATUS "XIMEA SDK not found; XIMEA backend will be unavailable at runtime.")
 endif()
-
-if(HAVE_XIMEA)
-  include_directories(${XIMEA_INCLUDE_DIR})
-  link_directories(/usr/lib /usr/lib64 /opt/XIMEA/lib /opt/XIMEA/lib64)
-endif()
-
-
 
 # =========================
-#  Include directories
+#  GenTL detection
 # =========================
-# Fallback include path if find_path() fails
-if (NOT EXISTS ${XIMEA_INCLUDE_DIR}/xiApi.h)
-  set(XIMEA_INCLUDE_DIR /opt/XIMEA/include)
-endif()
-
-include_directories(
-  include
-  ${OpenCV_INCLUDE_DIRS}
+find_path(GENTL_INCLUDE_DIR
+  NAMES GenTL_v1_5.h GenTL.h
+  PATHS
+    /opt/XIMEA/samples/_libs/GenTL
+    /opt/XIMEA/API/GenTL
+    /opt/gentl/include
+    /usr/include
+    /usr/local/include
 )
 
-if(HAVE_XIMEA)
-  include_directories(${XIMEA_INCLUDE_DIR})
-  link_directories(/opt/XIMEA/lib /opt/XIMEA/lib64)
+if(GENTL_INCLUDE_DIR)
+  message(STATUS "GenTL headers found")
+  message(STATUS "  GenTL include: ${GENTL_INCLUDE_DIR}")
+
+  list(APPEND CAMERA_SOURCES
+    src/GenTLCamera.cpp
+  )
+
+  list(APPEND CAMERA_INCLUDE_DIRS
+    ${GENTL_INCLUDE_DIR}
+  )
+
+  list(APPEND CAMERA_LIBS
+    dl
+  )
+
+  list(APPEND CAMERA_COMPILE_DEFS
+    HAVE_GENTL=1
+  )
+else()
+  message(STATUS "GenTL headers not found; GenTL backend will be unavailable at runtime.")
 endif()
 
 # =========================
-#  Library sources
+#  Main library
 # =========================
 add_library(${PROJECT_NAME}_lib
+  src/BufferPool.cpp
   src/CamBufferRecorderNode.cpp
   src/Recorder.cpp
   src/FfmpegWriter.cpp
-  src/GenTLCamera.cpp
-  src/XiCamera.cpp       # XiCamera only compiled; linking optional
+  ${CAMERA_SOURCES}
 )
 
-# =========================
-#  Target dependencies
-# =========================
+target_include_directories(${PROJECT_NAME}_lib
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+    ${OpenCV_INCLUDE_DIRS}
+  PRIVATE
+    ${CAMERA_INCLUDE_DIRS}
+)
+
+target_compile_definitions(${PROJECT_NAME}_lib
+  PRIVATE
+    ${CAMERA_COMPILE_DEFS}
+)
+
 ament_target_dependencies(${PROJECT_NAME}_lib
   rclcpp
   rclcpp_lifecycle
   sensor_msgs
+  std_msgs
   diagnostic_msgs
   OpenCV
 )
@@ -91,26 +159,34 @@ ament_target_dependencies(${PROJECT_NAME}_lib
 target_link_libraries(${PROJECT_NAME}_lib
   PkgConfig::FFMPEG
   Threads::Threads
+  ${CAMERA_LIBS}
 )
-
-if(HAVE_XIMEA)
-  target_link_libraries(${PROJECT_NAME}_lib ${XIMEA_LIB})
-endif()
 
 # =========================
 #  Executable
 # =========================
-add_executable(${PROJECT_NAME} src/main.cpp)
-target_link_libraries(${PROJECT_NAME} ${PROJECT_NAME}_lib)
-ament_target_dependencies(${PROJECT_NAME} rclcpp rclcpp_lifecycle)
+add_executable(${PROJECT_NAME}
+  src/main.cpp
+)
+
+target_link_libraries(${PROJECT_NAME}
+  ${PROJECT_NAME}_lib
+)
+
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  rclcpp_lifecycle
+)
 
 # =========================
-#  Installation
+#  Install
 # =========================
 install(TARGETS
   ${PROJECT_NAME}
   ${PROJECT_NAME}_lib
-  DESTINATION lib/${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY include/
@@ -123,4 +199,3 @@ install(DIRECTORY launch config msg action
 )
 
 ament_package()
-

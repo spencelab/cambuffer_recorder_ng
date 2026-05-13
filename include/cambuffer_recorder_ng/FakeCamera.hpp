@@ -1,59 +1,59 @@
 #pragma once
-#include <vector>
-#include <cstdint>
-#include <chrono>
-#include <thread>
-#include <random>
+
 #include "cambuffer_recorder_ng/ICamera.hpp"
 
-namespace cambuffer_recorder_ng {
+#include <atomic>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+namespace cambuffer_recorder_ng
+{
 
 /**
- * @brief Simple fake camera that generates synthetic gradient frames.
+ * @brief Synthetic camera backend for testing the recorder without hardware.
+ *
+ * FakeCamera currently emits RGB24 frames because FfmpegWriter expects RGB24
+ * input before converting to YUV420P. The output buffer is owned by FakeCamera
+ * and remains valid until the next grab() call.
  */
-class FakeCamera : public ICamera {
+class FakeCamera : public ICamera
+{
 public:
-    FakeCamera(int width = 640, int height = 480, int fps = 30)
-        : width_(width), height_(height), fps_(fps), frame_bytes_(width * height)
-    {
-        buffer_.resize(frame_bytes_);
-    }
+    FakeCamera(int width = 640, int height = 480, int fps = 30);
+    ~FakeCamera() override = default;
 
-    void open(int device_index = 0) override {}
-    void start() override { running_ = true; }
-    void stop() override { running_ = false; }
+    void open(int device_index = 0) override;
+    void start() override;
+    void stop() override;
+    void close() override;
 
-    bool grab(uint8_t*& data, size_t& size, uint64_t& ts,
-              int& width, int& height, int& stride, int timeout_ms = 100) override
-    {
-        if (!running_) return false;
-        static uint64_t counter = 0;
-        counter++;
-
-        // Simple moving gradient pattern
-        for (int y = 0; y < height_; ++y) {
-            for (int x = 0; x < width_; ++x)
-                buffer_[y * width_ + x] = static_cast<uint8_t>((x + y + counter) % 255);
-        }
-
-        data = buffer_.data();
-        size = buffer_.size();
-        width = width_;
-        height = height_;
-        stride = width_;
-        ts = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                 std::chrono::steady_clock::now().time_since_epoch()).count();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000 / fps_));
-        return true;
-    }
+    bool grab(uint8_t*& data,
+              size_t& size,
+              uint64_t& ts,
+              int& width,
+              int& height,
+              int& stride,
+              int timeout_ms = 100) override;
 
 private:
-    int width_, height_, fps_;
-    size_t frame_bytes_;
-    bool running_{false};
+    void resizeBuffer();
+    void generateFrame(uint64_t frame_index);
+
+    int width_{640};
+    int height_{480};
+    int fps_{30};
+
+    static constexpr int channels_ = 3;  // RGB24
+
+    std::atomic<bool> opened_{false};
+    std::atomic<bool> running_{false};
+
+    uint64_t frame_counter_{0};
     std::vector<uint8_t> buffer_;
+
+    std::chrono::steady_clock::time_point next_frame_time_;
 };
 
-} // namespace cambuffer_recorder_ng
-
+}  // namespace cambuffer_recorder_ng

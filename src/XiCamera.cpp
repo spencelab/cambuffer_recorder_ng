@@ -1,8 +1,12 @@
-#include <m3api/xiApi.h> 
 #include "cambuffer_recorder_ng/XiCamera.hpp"
+
+#ifdef HAVE_XIMEA
+
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 namespace cambuffer_recorder_ng {
 
@@ -18,7 +22,7 @@ void XiCamera::open(int device_index)
     xiGetParamInt(handle_, XI_PRM_WIDTH, &width_);
     xiGetParamInt(handle_, XI_PRM_HEIGHT, &height_);
 
-    // Configure RAW8 format
+    // Configure RAW8 format for the current simple recorder path.
     xiSetParamInt(handle_, XI_PRM_IMAGE_DATA_FORMAT, XI_RAW8);
     xiSetParamInt(handle_, XI_PRM_EXPOSURE, 10000);
     xiSetParamInt(handle_, XI_PRM_GAIN, 0);
@@ -66,3 +70,4 @@ bool XiCamera::grab(uint8_t*& data, size_t& size, uint64_t& ts,
 
 } // namespace cambuffer_recorder_ng
 
+#endif  // HAVE_XIMEA
