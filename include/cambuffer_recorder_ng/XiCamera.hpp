@@ -7,6 +7,7 @@
 #include <m3api/xiApi.h>
 #include <cstdint>
 #include <cstddef>
+#include <vector>
 
 namespace cambuffer_recorder_ng {
 
@@ -14,6 +15,10 @@ class XiCamera : public ICamera {
 public:
     XiCamera() = default;
     ~XiCamera() override = default;
+
+    void configure(const CameraSettings& requested_settings) override;
+    CameraSettings getEffectiveSettings() const override { return effective_settings_; }
+    std::string backendName() const override { return "xiapi"; }
 
     void open(int device_index = 0) override;
     void start() override;
@@ -26,6 +31,11 @@ private:
     HANDLE handle_{nullptr};
     XI_IMG image_{};
     int width_{0}, height_{0};
+    int stride_bytes_{0};
+    int padding_x_{0};
+    int image_data_format_{0};
+    double exposure_us_{2000.0};
+    double gain_db_{0.0};
     bool running_{false};
 };
 

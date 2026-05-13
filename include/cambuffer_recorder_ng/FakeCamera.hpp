@@ -6,7 +6,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <vector>
 
 namespace cambuffer_recorder_ng
@@ -25,9 +24,9 @@ public:
     FakeCamera(int width = 640, int height = 480, int fps = 30);
     ~FakeCamera() override = default;
 
-    std::string backendName() const override { return "fake"; }
-
     void configure(const CameraSettings& requested_settings) override;
+    CameraSettings getEffectiveSettings() const override { return effective_settings_; }
+    std::string backendName() const override { return "fake"; }
 
     void open(int device_index = 0) override;
     void start() override;
@@ -45,7 +44,6 @@ public:
 private:
     void resizeBuffer();
     void generateFrame(uint64_t frame_index);
-    void updateEffectiveSettings();
 
     int width_{640};
     int height_{480};

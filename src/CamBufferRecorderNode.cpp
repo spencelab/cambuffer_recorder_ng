@@ -1,6 +1,7 @@
 #include "cambuffer_recorder_ng/CamBufferRecorderNode.hpp"
 
 #include "cambuffer_recorder_ng/FakeCamera.hpp"
+#include "cambuffer_recorder_ng/settings/SettingsManager.hpp"
 #include "cambuffer_recorder_ng/settings/SettingsSerialization.hpp"
 
 #ifdef HAVE_XIMEA
@@ -12,8 +13,8 @@
 #endif
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
+#include <cctype>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -22,20 +23,6 @@ namespace cambuffer_recorder_ng
 {
 namespace
 {
-
-std::string normalizeBackendName(std::string backend)
-{
-    std::transform(backend.begin(), backend.end(), backend.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-    if (backend == "fakecamera" || backend == "fake_cam" || backend == "fake-cam") {
-        return "fake";
-    }
-    if (backend == "ximea" || backend == "xi" || backend == "xi_api") {
-        return "xiapi";
-    }
-    return backend;
-}
 
 std::string joinStrings(const std::vector<std::string>& items, const std::string& sep)
 {
@@ -51,34 +38,34 @@ std::string builtBackendSummary()
 {
     std::vector<std::string> backends;
     backends.emplace_back("fake");
-
 #ifdef HAVE_XIMEA
     backends.emplace_back("xiapi");
 #endif
-
 #ifdef HAVE_GENTL
     backends.emplace_back("gentl");
 #endif
-
     return joinStrings(backends, ", ");
 }
 
-int settingIntOr(const CameraSettings& settings, const std::string& name, int fallback)
+std::string joinPath(const std::string& dir, const std::string& name)
 {
-    return static_cast<int>(settings.getOr<int64_t>(name, static_cast<int64_t>(fallback)));
+    if (dir.empty()) return name;
+    if (dir.back() == '/') return dir + name;
+    return dir + "/" + name;
+}
+
+std::string extensionForOutputKind(const std::string& output_kind)
+{
+    if (output_kind == "rolling_raw_binary") return ".cbrraw";
+    return ".mp4";
 }
 
 }  // namespace
 
 CamBufferRecorderNode::CamBufferRecorderNode()
-    : rclcpp_lifecycle::LifecycleNode(
-          "cambuffer_recorder_ng",
-          rclcpp::NodeOptions()
-              .allow_undeclared_parameters(true)
-              .automatically_declare_parameters_from_overrides(true))
+    : rclcpp_lifecycle::LifecycleNode("cambuffer_recorder_ng")
 {
-    settings_manager_ = std::make_unique<SettingsManager>(*this);
-
+    SettingsManager settings_manager(*this);
     RCLCPP_INFO(get_logger(), "Camera backends built into this binary: %s",
                 builtBackendSummary().c_str());
 }
@@ -86,19 +73,19 @@ CamBufferRecorderNode::CamBufferRecorderNode()
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 CamBufferRecorderNode::on_configure(const rclcpp_lifecycle::State &)
 {
-    backend_ = normalizeBackendName(get_parameter("backend").as_string());
-    requested_settings_ = settings_manager_->buildRequestedSettings(backend_);
+    SettingsManager settings_manager(*this);
+    requested_settings_ = settings_manager.buildRequestedSettings();
 
-    width_ = settingIntOr(requested_settings_, "width", width_);
-    height_ = settingIntOr(requested_settings_, "height", height_);
-    fps_ = settingIntOr(requested_settings_, "fps", fps_);
+    backend_ = normalizeBackendName(requested_settings_.get<std::string>("backend"));
+    mode_ = normalizeModeName(requested_settings_.get<std::string>("mode"));
+    output_kind_ = requested_settings_.getOr<std::string>("output.kind", "video_mp4");
 
-    const std::string cti_path = get_parameter("cti_path").as_string();
-    const int device_index = static_cast<int>(get_parameter("device_index").as_int());
+    const int device_index = static_cast<int>(requested_settings_.getOr<int64_t>("device_index", int64_t{0}));
+    const std::string cti_path = requested_settings_.getOr<std::string>("cti_path", "/opt/XIMEA/lib/ximea.gentl2.cti");
 
     try {
         if (backend_ == "fake") {
-            camera_ = std::make_shared<FakeCamera>(width_, height_, fps_);
+            camera_ = std::make_shared<FakeCamera>();
             camera_->configure(requested_settings_);
             camera_->open(device_index);
         }
@@ -109,8 +96,7 @@ CamBufferRecorderNode::on_configure(const rclcpp_lifecycle::State &)
             camera_->open(device_index);
 #else
             RCLCPP_ERROR(get_logger(),
-                         "backend:=xiapi requested, but XIMEA support was not built. "
-                         "Built backends: %s",
+                         "backend:=xiapi requested, but XIMEA support was not built. Built backends: %s",
                          builtBackendSummary().c_str());
             return CallbackReturn::FAILURE;
 #endif
@@ -123,31 +109,59 @@ CamBufferRecorderNode::on_configure(const rclcpp_lifecycle::State &)
             camera_ = gentl_camera;
 #else
             RCLCPP_ERROR(get_logger(),
-                         "backend:=gentl requested, but GenTL support was not built. "
-                         "Built backends: %s",
+                         "backend:=gentl requested, but GenTL support was not built. Built backends: %s",
                          builtBackendSummary().c_str());
             return CallbackReturn::FAILURE;
 #endif
         }
         else {
-            RCLCPP_ERROR(get_logger(),
-                         "Unknown backend '%s'. Built backends: %s",
+            RCLCPP_ERROR(get_logger(), "Unknown backend '%s'. Built backends: %s",
                          backend_.c_str(), builtBackendSummary().c_str());
             return CallbackReturn::FAILURE;
         }
 
-        effective_settings_ = camera_->effectiveSettings();
-        width_ = settingIntOr(effective_settings_, "width", width_);
-        height_ = settingIntOr(effective_settings_, "height", height_);
-        fps_ = settingIntOr(effective_settings_, "fps", fps_);
+        effective_settings_ = camera_->getEffectiveSettings();
+        if (effective_settings_.values().empty()) effective_settings_ = requested_settings_;
+
+        width_  = static_cast<int>(effective_settings_.getOr<int64_t>("camera.width", requested_settings_.getOr<int64_t>("camera.width", int64_t{640})));
+        height_ = static_cast<int>(effective_settings_.getOr<int64_t>("camera.height", requested_settings_.getOr<int64_t>("camera.height", int64_t{480})));
+        fps_    = static_cast<int>(effective_settings_.getOr<double>("camera.fps", requested_settings_.getOr<double>("camera.fps", 30.0)));
+
+        run_id_ = utcTimestampForFilename();
+        const std::string output_dir = requested_settings_.getOr<std::string>("output.dir", "/tmp");
+        std::string prefix = requested_settings_.getOr<std::string>("output.prefix", "cbrng");
+        if (prefix.empty()) prefix = backend_ + "_" + mode_;
+        prefix += "_" + run_id_;
+
+        output_path_ = requested_settings_.getOr<std::string>("output.path", "");
+        if (output_path_.empty() && output_kind_ == "video_mp4") {
+            output_path_ = joinPath(output_dir, prefix + extensionForOutputKind(output_kind_));
+        }
+        rolling_path_prefix_ = joinPath(output_dir, prefix);
+
+        metadata_path_ = requested_settings_.getOr<std::string>("metadata_path", "");
+        if (metadata_path_.empty()) {
+            metadata_path_ = (output_kind_ == "rolling_raw_binary")
+                ? rolling_path_prefix_ + ".metadata.yaml"
+                : output_path_ + ".metadata.yaml";
+        }
 
         RCLCPP_INFO(get_logger(),
-                    "Configured backend '%s' (%dx%d @ %d fps). Built backends: %s",
-                    backend_.c_str(), width_, height_, fps_, builtBackendSummary().c_str());
+                    "Configured backend '%s', mode '%s', output kind '%s' (%dx%d @ %.3g fps). Built backends: %s",
+                    backend_.c_str(), mode_.c_str(), output_kind_.c_str(), width_, height_,
+                    requested_settings_.getOr<double>("camera.fps", static_cast<double>(fps_)),
+                    builtBackendSummary().c_str());
+        RCLCPP_INFO(get_logger(), "Run id: %s", run_id_.c_str());
+        RCLCPP_INFO(get_logger(), "Metadata path: %s", metadata_path_.c_str());
+        if (output_kind_ == "rolling_raw_binary") {
+            RCLCPP_INFO(get_logger(), "Rolling raw path prefix: %s", rolling_path_prefix_.c_str());
+        } else {
+            RCLCPP_INFO(get_logger(), "Video output path: %s", output_path_.c_str());
+        }
+
         return CallbackReturn::SUCCESS;
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(get_logger(), "Camera open failed for backend '%s': %s",
-                     backend_.c_str(), e.what());
+        RCLCPP_ERROR(get_logger(), "Camera configure/open failed for backend '%s': %s", backend_.c_str(), e.what());
         return CallbackReturn::FAILURE;
     }
 }
@@ -160,32 +174,40 @@ CamBufferRecorderNode::on_activate(const rclcpp_lifecycle::State &)
         return CallbackReturn::FAILURE;
     }
 
-    recorder_ = std::make_shared<Recorder>();
-    const std::string output_path = get_parameter("output_path").as_string();
-    const std::string metadata_path = metadataPathForOutput(output_path);
-
     try {
-        effective_settings_ = camera_->effectiveSettings();
-        writeMetadataYaml(metadata_path,
-                          backend_,
-                          output_path,
-                          requested_settings_,
-                          effective_settings_);
-        RCLCPP_INFO(get_logger(), "Wrote metadata to %s", metadata_path.c_str());
-
         camera_->start();
 
-        const bool recorder_started = recorder_->start(
-            [this](uint8_t*& d, size_t& sz, uint64_t& t, int& w, int& h, int& s) {
-                return camera_->grab(d, sz, t, w, h, s, 100);
-            },
-            output_path, width_, height_, fps_);
+        // Write metadata at recording start so it shares the timestamped run id with the output files.
+        effective_settings_.set("run_id", run_id_);
+        effective_settings_.set("output.path", output_path_);
+        effective_settings_.set("metadata_path", metadata_path_);
+        effective_settings_.set("rolling.path_prefix", rolling_path_prefix_);
+        writeTextFile(metadata_path_, buildMetadataYaml(run_id_, backend_, mode_, output_kind_, requested_settings_, effective_settings_));
 
-        if (!recorder_started) {
-            RCLCPP_ERROR(get_logger(), "Recorder failed to start for output '%s'",
-                         output_path.c_str());
-            camera_->stop();
-            return CallbackReturn::FAILURE;
+        if (output_kind_ == "rolling_raw_binary" || mode_ == "raw8bayerGBRG_rolling") {
+            rolling_raw_recorder_ = std::make_shared<RollingRawRecorder>();
+            if (!rolling_raw_recorder_->start(camera_, effective_settings_, rolling_path_prefix_)) {
+                RCLCPP_ERROR(get_logger(), "Rolling raw recorder failed to start for prefix '%s'", rolling_path_prefix_.c_str());
+                camera_->stop();
+                return CallbackReturn::FAILURE;
+            }
+            RCLCPP_INFO(get_logger(), "Backend '%s' active, rolling RAW binary capture to %s_####.cbrraw",
+                        backend_.c_str(), rolling_path_prefix_.c_str());
+        } else {
+            recorder_ = std::make_shared<Recorder>();
+            const bool recorder_started = recorder_->start(
+                [this](uint8_t*& d, size_t& sz, uint64_t& t, int& w, int& h, int& s) {
+                    return camera_->grab(d, sz, t, w, h, s, 100);
+                },
+                output_path_, width_, height_, fps_);
+
+            if (!recorder_started) {
+                RCLCPP_ERROR(get_logger(), "Recorder failed to start for output '%s'", output_path_.c_str());
+                camera_->stop();
+                return CallbackReturn::FAILURE;
+            }
+            RCLCPP_INFO(get_logger(), "Backend '%s' active and recording video to %s",
+                        backend_.c_str(), output_path_.c_str());
         }
     } catch (const std::exception& e) {
         RCLCPP_ERROR(get_logger(), "Activation failed: %s", e.what());
@@ -193,12 +215,7 @@ CamBufferRecorderNode::on_activate(const rclcpp_lifecycle::State &)
         return CallbackReturn::FAILURE;
     }
 
-    // Recorder owns the grab loop. Do not also run this node's diagnostic grab
-    // loop, or two threads will pull frames from the same camera at once.
     running_ = false;
-
-    RCLCPP_INFO(get_logger(), "Backend '%s' active and recording to %s",
-                backend_.c_str(), output_path.c_str());
     return CallbackReturn::SUCCESS;
 }
 
@@ -208,8 +225,9 @@ CamBufferRecorderNode::on_deactivate(const rclcpp_lifecycle::State &)
     running_ = false;
     if (worker_.joinable()) worker_.join();
 
+    if (rolling_raw_recorder_) rolling_raw_recorder_->stop();
     if (recorder_) recorder_->stop();
-    if (camera_)  camera_->stop();
+    if (camera_) camera_->stop();
 
     RCLCPP_INFO(get_logger(), "Camera deactivated and recording stopped.");
     return CallbackReturn::SUCCESS;
@@ -218,74 +236,36 @@ CamBufferRecorderNode::on_deactivate(const rclcpp_lifecycle::State &)
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 CamBufferRecorderNode::on_shutdown(const rclcpp_lifecycle::State & previous_state)
 {
-    RCLCPP_INFO(get_logger(),
-                "Shutdown requested from lifecycle state '%s'. Backend: '%s'.",
-                previous_state.label().c_str(),
-                backend_.c_str());
+    RCLCPP_INFO(get_logger(), "Shutdown requested from lifecycle state '%s'. Backend: '%s'.",
+                previous_state.label().c_str(), backend_.c_str());
 
     running_ = false;
+    if (worker_.joinable()) worker_.join();
 
-    if (worker_.joinable()) {
-        worker_.join();
+    if (rolling_raw_recorder_) {
+        RCLCPP_INFO(get_logger(), "Stopping rolling raw recorder during shutdown.");
+        rolling_raw_recorder_->stop();
+        rolling_raw_recorder_.reset();
     }
-
     if (recorder_) {
         RCLCPP_INFO(get_logger(), "Stopping recorder during shutdown.");
         recorder_->stop();
         recorder_.reset();
     }
-
     if (camera_) {
-        RCLCPP_INFO(get_logger(), "Stopping camera backend '%s' during shutdown.",
-                    backend_.c_str());
+        RCLCPP_INFO(get_logger(), "Stopping camera backend '%s' during shutdown.", backend_.c_str());
         camera_->stop();
         camera_->close();
         camera_.reset();
     }
 
     RCLCPP_INFO(get_logger(), "cambuffer_recorder_ng shutdown complete.");
-
     return CallbackReturn::SUCCESS;
 }
 
 void CamBufferRecorderNode::run_loop()
 {
-    uint8_t* data = nullptr;
-    size_t size = 0;
-    int w = 0, h = 0, stride = 0;
-    uint64_t ts = 0;
-
-    size_t frame_count = 0;
-    auto last_heartbeat = std::chrono::steady_clock::now();
-
-    while (running_ && rclcpp::ok()) {
-        if (camera_ && camera_->grab(data, size, ts, w, h, stride, 100)) {
-            frame_count++;
-
-            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
-                                 "Frame ts: %lu (%dx%d, %zu bytes)",
-                                 ts, w, h, size);
-        }
-
-        auto now = std::chrono::steady_clock::now();
-        double elapsed = std::chrono::duration<double>(now - last_heartbeat).count();
-        if (elapsed >= 1.0) {
-            double fps_est = frame_count / elapsed;
-            RCLCPP_INFO(get_logger(), "Heartbeat: %.2f fps (%.0f frames in %.2fs)",
-                        fps_est, static_cast<double>(frame_count), elapsed);
-            frame_count = 0;
-            last_heartbeat = now;
-        }
-    }
-}
-
-std::string CamBufferRecorderNode::metadataPathForOutput(const std::string& output_path) const
-{
-    const std::string explicit_path = get_parameter("metadata_path").as_string();
-    if (!explicit_path.empty()) {
-        return explicit_path;
-    }
-    return output_path + ".metadata.yaml";
+    // Kept for future diagnostics. The Recorder/RollingRawRecorder owns the grab loop.
 }
 
 }  // namespace cambuffer_recorder_ng
