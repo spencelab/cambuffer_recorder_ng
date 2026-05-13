@@ -7,15 +7,18 @@ https://github.com/aspence/spencelab/wiki/Ubuntu-22-Jammy-ROS-2-Humble-Testing-a
 
 ```
 open terminal
-ros2 launch cambuffer_recorder_ng fakecam.launch.py backend:=xiapi
+ros2 run cambuffer_recorder_ng cambuffer_recorder_ng   --ros-args   -p backend:=fake   -p width:=640   -p height:=480   -p fps:=30   -p output_path:=/tmp/fakecam_test.mp4
 open another terminal
-ros2 lifecycle set /fakecam_node configure
-ros2 lifecycle set /fakecam_node activate
-ros2 lifecycle set /fakecam_node deacctivate
-ros2 lifecycle set /fakecam_node shutdown
+ros2 lifecycle set /cambuffer_recorder_ng configure
+ros2 lifecycle set /cambuffer_recorder_ng activate
+wait awhile, check the movie in /tmp is increasing in size...
+ros2 lifecycle set /cambuffer_recorder_ng deactivate
+ros2 lifecycle set /cambuffer_recorder_ng shutdown
 can ctrl-c the ros2 launch.
-makes mpg.
+makes mpg at the target dir - open and look for rainbows!
 ```
+
+ximea backend should work if built with xiapi installed. test acquires.
 
 Has issues with sizes going into ffmpeg etc might need to be 704 tall multiple of 16. Lots of testing of bandwidth and processing here:
 
