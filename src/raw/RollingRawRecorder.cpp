@@ -2,12 +2,43 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstring>
 #include <iostream>
+#include <stdexcept>
 #include <thread>
 
 namespace cambuffer_recorder_ng
 {
+
+namespace
+{
+std::string normalizeToken(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        if (c == '-' || c == ' ' || c == '.') return '_';
+        return static_cast<char>(std::tolower(c));
+    });
+    return s;
+}
+
+bool isGbrgRaw8Like(const std::string& pixel_format, const std::string& bayer_pattern)
+{
+    const std::string pf = normalizeToken(pixel_format);
+    const std::string bp = normalizeToken(bayer_pattern);
+
+    if (pf == "bayer_gbrg8" || pf == "raw8_bayer_gbrg" || pf == "bayer8_gbrg") {
+        return true;
+    }
+
+    // Legacy configs may still say raw8 plus a separate Bayer pattern.
+    if ((pf == "raw8" || pf == "bayer8") && (bp == "gbrg" || bp.empty())) {
+        return true;
+    }
+
+    return false;
+}
+}  // namespace
 
 bool RollingRawRecorder::start(std::shared_ptr<ICamera> camera,
                                const CameraSettings& settings,
@@ -25,6 +56,33 @@ bool RollingRawRecorder::start(std::shared_ptr<ICamera> camera,
     const uint32_t width = static_cast<uint32_t>(settings_.getOr<int64_t>("camera.width", int64_t{0}));
     const uint32_t height = static_cast<uint32_t>(settings_.getOr<int64_t>("camera.height", int64_t{0}));
     const uint32_t source_stride = static_cast<uint32_t>(settings_.getOr<int64_t>("camera.stride_bytes", int64_t{width}));
+    const std::string pixel_format = settings_.getOr<std::string>("camera.pixel_format", "bayer_gbrg8");
+    const std::string bayer_pattern = settings_.getOr<std::string>("camera.bayer_pattern", "GBRG");
+
+    if (width == 0 || height == 0) {
+        std::cerr << "RollingRawRecorder: invalid frame dimensions " << width << "x" << height << "\n";
+        return false;
+    }
+
+    if (!isGbrgRaw8Like(pixel_format, bayer_pattern)) {
+        std::cerr << "RollingRawRecorder: raw8bayerGBRG_rolling requires one-byte GBRG Bayer input, "
+                  << "but camera.pixel_format='" << pixel_format
+                  << "' and camera.bayer_pattern='" << bayer_pattern << "'\n";
+        return false;
+    }
+
+    const int64_t bytes_per_pixel = settings_.getOr<int64_t>("camera.bytes_per_pixel", int64_t{1});
+    if (bytes_per_pixel != 1) {
+        std::cerr << "RollingRawRecorder: raw8bayerGBRG_rolling requires 1 byte/pixel, got "
+                  << bytes_per_pixel << " bytes/pixel\n";
+        return false;
+    }
+
+    if (source_stride < width) {
+        std::cerr << "RollingRawRecorder: source stride " << source_stride
+                  << " is smaller than width " << width << "\n";
+        return false;
+    }
 
     uint64_t roll_bytes = static_cast<uint64_t>(settings_.getOr<int64_t>("rolling.max_file_bytes", int64_t{0}));
     if (roll_bytes == 0) {
@@ -106,6 +164,21 @@ void RollingRawRecorder::loop()
             ok = false;
         }
         if (!ok || !data || w <= 0 || h <= 0) continue;
+
+        if (stride < w) {
+            std::cerr << "RollingRawRecorder: grab returned invalid stride " << stride
+                      << " for width " << w << "\n";
+            running_ = false;
+            break;
+        }
+
+        const size_t minimum_bytes = static_cast<size_t>(stride) * static_cast<size_t>(h);
+        if (size < minimum_bytes) {
+            std::cerr << "RollingRawRecorder: grab returned size " << size
+                      << " but stride*height is " << minimum_bytes << "\n";
+            running_ = false;
+            break;
+        }
 
         const uint64_t utc_ns = systemUtcNowNs();
         const uint8_t* payload = data;

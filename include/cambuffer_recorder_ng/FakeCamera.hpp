@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace cambuffer_recorder_ng
@@ -14,9 +15,9 @@ namespace cambuffer_recorder_ng
 /**
  * @brief Synthetic camera backend for testing the recorder without hardware.
  *
- * FakeCamera currently emits RGB24 frames because FfmpegWriter expects RGB24
- * input before converting to YUV420P. The output buffer is owned by FakeCamera
- * and remains valid until the next grab() call.
+ * Modes set camera.pixel_format defaults. FakeCamera only obeys camera.* settings.
+ * This keeps FakeCamera useful for both normal happy-path tests and intentional
+ * pipeline mismatch tests.
  */
 class FakeCamera : public ICamera
 {
@@ -42,14 +43,31 @@ public:
               int timeout_ms = 100) override;
 
 private:
+    enum class FakePixelFormat
+    {
+        RGB24,
+        MONO8,
+        BAYER_GBRG8
+    };
+
+    static std::string canonicalPixelFormat(std::string pixel_format);
+    static FakePixelFormat parsePixelFormat(const std::string& pixel_format);
+    static int bytesPerPixel(FakePixelFormat pixel_format);
+
     void resizeBuffer();
     void generateFrame(uint64_t frame_index);
+    void generateRgb24(uint64_t frame_index);
+    void generateMono8(uint64_t frame_index);
+    void generateBayerGbrg8(uint64_t frame_index);
+    void drawTimingBar(uint64_t frame_index);
 
     int width_{640};
     int height_{480};
     int fps_{30};
-
-    static constexpr int channels_ = 3;  // RGB24
+    std::string pixel_format_name_{"rgb24"};
+    FakePixelFormat pixel_format_{FakePixelFormat::RGB24};
+    int bytes_per_pixel_{3};
+    int stride_bytes_{640 * 3};
 
     std::atomic<bool> opened_{false};
     std::atomic<bool> running_{false};

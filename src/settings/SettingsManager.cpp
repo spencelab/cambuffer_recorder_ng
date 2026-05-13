@@ -133,7 +133,7 @@ CameraSettings SettingsManager::defaultsForBackend(const std::string& backend_na
         s.set("camera.height", int64_t{700});
         s.set("camera.fps", 5.0);
         s.set("camera.exposure_us", 2000.0);
-        s.set("camera.pixel_format", std::string{"raw8"});
+        s.set("camera.pixel_format", std::string{"bayer_gbrg8"});
         s.set("camera.bayer_pattern", std::string{"GBRG"});
     } else if (backend_name == "gentl") {
         s.set("camera.width", int64_t{1280});
@@ -160,7 +160,10 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("camera.height", int64_t{700});
         s.set("camera.fps", 5.0);
         s.set("camera.exposure_us", 2000.0);
-        s.set("camera.pixel_format", std::string{"raw8"});
+        // Mode chooses the acquisition format; cameras simply obey camera.*.
+        // For the rolling raw mode, fakecam and XIMEA should both produce one-byte
+        // GBRG Bayer frames.
+        s.set("camera.pixel_format", std::string{"bayer_gbrg8"});
         s.set("camera.bayer_pattern", std::string{"GBRG"});
         s.set("pipeline.debayer.enabled", false);
         s.set("pipeline.resize.scale", 1.0);
@@ -168,7 +171,7 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("pipeline.white_balance.r_gain", 1.23);
         s.set("pipeline.white_balance.g_gain", 1.00);
         s.set("pipeline.white_balance.b_gain", 1.60);
-        s.set("output.pixel_format", std::string{"raw8"});
+        s.set("output.pixel_format", std::string{"bayer_gbrg8"});
         s.set("rolling.max_file_gib", 2.0);
         s.set("rolling.max_file_bytes", int64_t{0});
         s.set("rolling.max_frames", int64_t{0});

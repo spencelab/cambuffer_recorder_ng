@@ -42,8 +42,9 @@ void XiCamera::open(int device_index)
     std::memset(&image_, 0, sizeof(image_));
     image_.size = sizeof(XI_IMG);
 
-    const std::string pixel_format = requested_settings_.getOr<std::string>("camera.pixel_format", "raw8");
-    if (pixel_format == "raw8" || pixel_format == "XI_RAW8" || pixel_format == "bayer8") {
+    const std::string pixel_format = requested_settings_.getOr<std::string>("camera.pixel_format", "bayer_gbrg8");
+    if (pixel_format == "raw8" || pixel_format == "XI_RAW8" || pixel_format == "bayer8" ||
+        pixel_format == "bayer_gbrg8" || pixel_format == "raw8_bayer_gbrg") {
         xiCheck(xiSetParamInt(handle_, XI_PRM_IMAGE_DATA_FORMAT, XI_RAW8), "xiSetParamInt IMAGE_DATA_FORMAT XI_RAW8");
     }
 
@@ -69,8 +70,9 @@ void XiCamera::open(int device_index)
     effective_settings_.set("camera.height", int64_t{height_});
     effective_settings_.set("camera.exposure_us", exposure_us_);
     effective_settings_.set("camera.gain_db", gain_db_);
-    effective_settings_.set("camera.pixel_format", std::string{"raw8"});
+    effective_settings_.set("camera.pixel_format", requested_settings_.getOr<std::string>("camera.pixel_format", "bayer_gbrg8"));
     effective_settings_.set("camera.bayer_pattern", requested_settings_.getOr<std::string>("camera.bayer_pattern", "GBRG"));
+    effective_settings_.set("camera.bytes_per_pixel", int64_t{1});
     effective_settings_.set("camera.padding_x", int64_t{padding_x_});
     effective_settings_.set("camera.stride_bytes", int64_t{stride_bytes_});
     effective_settings_.set("ximea.image_data_format", int64_t{image_data_format_});
