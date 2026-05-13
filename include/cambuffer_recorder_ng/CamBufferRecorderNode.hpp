@@ -10,19 +10,12 @@
 
 #include "cambuffer_recorder_ng/ICamera.hpp"
 #include "cambuffer_recorder_ng/Recorder.hpp"
+#include "cambuffer_recorder_ng/raw/RollingRawRecorder.hpp"
 #include "cambuffer_recorder_ng/settings/CameraSettings.hpp"
-#include "cambuffer_recorder_ng/settings/SettingsManager.hpp"
 
 namespace cambuffer_recorder_ng
 {
 
-/**
- * @brief Lifecycle node that wraps a selectable camera backend and Recorder.
- *
- * Backend-specific camera headers are intentionally not included here. They are
- * included only in the .cpp and only when the matching HAVE_* compile definition
- * is present, so missing SDKs do not break builds that only use FakeCamera.
- */
 class CamBufferRecorderNode : public rclcpp_lifecycle::LifecycleNode
 {
 public:
@@ -39,11 +32,10 @@ protected:
 
 private:
     void run_loop();
-    std::string metadataPathForOutput(const std::string& output_path) const;
 
     std::shared_ptr<ICamera> camera_;
     std::shared_ptr<Recorder> recorder_;
-    std::unique_ptr<SettingsManager> settings_manager_;
+    std::shared_ptr<RollingRawRecorder> rolling_raw_recorder_;
 
     std::thread worker_;
     std::atomic<bool> running_{false};
@@ -52,6 +44,13 @@ private:
     CameraSettings effective_settings_;
 
     std::string backend_{"fake"};
+    std::string mode_{"video_rgb24"};
+    std::string output_kind_{"video_mp4"};
+    std::string run_id_;
+    std::string output_path_;
+    std::string metadata_path_;
+    std::string rolling_path_prefix_;
+
     int width_{640};
     int height_{480};
     int fps_{30};

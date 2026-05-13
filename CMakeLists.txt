@@ -133,6 +133,8 @@ add_library(${PROJECT_NAME}_lib
   src/settings/CameraSettings.cpp
   src/settings/SettingsManager.cpp
   src/settings/SettingsSerialization.cpp
+  src/raw/RawRollingWriter.cpp
+  src/raw/RollingRawRecorder.cpp
   ${CAMERA_SOURCES}
 )
 
@@ -182,11 +184,24 @@ ament_target_dependencies(${PROJECT_NAME}
 )
 
 # =========================
+#  Raw rolling inspection/conversion tools
+# =========================
+add_executable(raw_rolling_info src/tools/raw_rolling_info.cpp)
+target_link_libraries(raw_rolling_info ${PROJECT_NAME}_lib)
+ament_target_dependencies(raw_rolling_info rclcpp OpenCV)
+
+add_executable(raw_rolling_to_mp4 src/tools/raw_rolling_to_mp4.cpp)
+target_link_libraries(raw_rolling_to_mp4 ${PROJECT_NAME}_lib)
+ament_target_dependencies(raw_rolling_to_mp4 rclcpp OpenCV)
+
+# =========================
 #  Install
 # =========================
 install(TARGETS
   ${PROJECT_NAME}
   ${PROJECT_NAME}_lib
+  raw_rolling_info
+  raw_rolling_to_mp4
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
