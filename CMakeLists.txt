@@ -130,6 +130,9 @@ add_library(${PROJECT_NAME}_lib
   src/CamBufferRecorderNode.cpp
   src/Recorder.cpp
   src/FfmpegWriter.cpp
+  src/settings/CameraSettings.cpp
+  src/settings/SettingsManager.cpp
+  src/settings/SettingsSerialization.cpp
   ${CAMERA_SOURCES}
 )
 
