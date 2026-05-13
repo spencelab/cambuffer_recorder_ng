@@ -1,0 +1,15 @@
+cambuffer_recorder_ng:
+  ros__parameters:
+    backend: "fake"
+    width: 320
+    height: 240
+    fps: 30
+    frame_rate_hz: 30.0
+    exposure_us: 10000.0
+    hardware_trigger_enabled: false
+    hardware_trigger_rate_hz: 30.0
+    pixel_format: "rgb24"
+    output_path: "/tmp/fakecam_settings_test.mp4"
+    metadata_path: ""
+    fake.pattern: "rainbow_bar"
+    fake.noise_sigma: 0.0
