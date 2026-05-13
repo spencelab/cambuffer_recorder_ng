@@ -44,6 +44,25 @@ std::string normalizeModeName(std::string mode)
     return mode;
 }
 
+static bool parseBoolString(const std::string& value, const std::string& parameter_name)
+{
+    const std::string v = lowerNoSpaces(value);
+    if (v == "true" || v == "1" || v == "yes" || v == "on" || v == "enabled") {
+        return true;
+    }
+    if (v == "false" || v == "0" || v == "no" || v == "off" || v == "disabled") {
+        return false;
+    }
+    throw std::runtime_error("Invalid boolean string for " + parameter_name + ": " + value +
+                             " (use true/false or auto)");
+}
+
+static bool isAutoString(const std::string& value)
+{
+    const std::string v = lowerNoSpaces(value);
+    return v.empty() || v == "auto" || v == "default" || v == "mode_default";
+}
+
 SettingsManager::SettingsManager(rclcpp_lifecycle::LifecycleNode& node)
 : node_(node)
 {
@@ -85,6 +104,11 @@ void SettingsManager::declareParameters()
     declare_double("camera.gain_db", 0.0);
     declare_string("camera.pixel_format", "");
     declare_string("camera.bayer_pattern", "");
+
+    // Fake backend pacing is a tri-state string: "auto", "true", or "false".
+    // Mode/backend defaults decide auto. Quote this in YAML, e.g. "false".
+    declare_string("fake.realtime_pacing", "auto");
+
     declare_int("device_index", 0);
     declare_string("cti_path", "/opt/XIMEA/lib/ximea.gentl2.cti");
 
@@ -128,6 +152,9 @@ CameraSettings SettingsManager::defaultsForBackend(const std::string& backend_na
         s.set("camera.width", int64_t{640});
         s.set("camera.height", int64_t{480});
         s.set("camera.pixel_format", std::string{"rgb24"});
+        // Default fakecam behavior emulates a camera that blocks until the next frame.
+        // High-level modes can override this when the recorder loop owns pacing.
+        s.set("fake.realtime_pacing", true);
     } else if (backend_name == "xiapi") {
         s.set("camera.width", int64_t{2048});
         s.set("camera.height", int64_t{700});
@@ -176,6 +203,9 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("rolling.max_file_bytes", int64_t{0});
         s.set("rolling.max_frames", int64_t{0});
         s.set("rolling.pack_rows", true);
+        // RollingRawRecorder already does software pacing. Leave fakecam unpaced
+        // by default to avoid two 100 Hz limiters becoming an accidental 50 Hz.
+        s.set("fake.realtime_pacing", false);
     } else {
         s.set("output.kind", std::string{"video_mp4"});
         s.set("output.prefix", std::string{"video_rgb24"});
@@ -187,6 +217,7 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("pipeline.white_balance.r_gain", 1.0);
         s.set("pipeline.white_balance.g_gain", 1.0);
         s.set("pipeline.white_balance.b_gain", 1.0);
+        s.set("fake.realtime_pacing", true);
     }
 
     return s;
@@ -224,6 +255,13 @@ CameraSettings SettingsManager::readRosOverrides()
     s.set("camera.gain_db", node_.get_parameter("camera.gain_db").as_double());
     set_string_if_nonempty("camera.pixel_format", "camera.pixel_format");
     set_string_if_nonempty("camera.bayer_pattern", "camera.bayer_pattern");
+
+    const std::string fake_realtime_pacing = node_.get_parameter("fake.realtime_pacing").as_string();
+    if (!isAutoString(fake_realtime_pacing)) {
+        s.set("fake.realtime_pacing",
+              parseBoolString(fake_realtime_pacing, "fake.realtime_pacing"));
+    }
+
     s.set("device_index", int64_t{node_.get_parameter("device_index").as_int()});
     set_string_if_nonempty("cti_path", "cti_path");
 

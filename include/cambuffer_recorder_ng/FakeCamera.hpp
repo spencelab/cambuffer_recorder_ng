@@ -68,6 +68,7 @@ private:
     FakePixelFormat pixel_format_{FakePixelFormat::RGB24};
     int bytes_per_pixel_{3};
     int stride_bytes_{640 * 3};
+    bool realtime_pacing_{true};
 
     std::atomic<bool> opened_{false};
     std::atomic<bool> running_{false};

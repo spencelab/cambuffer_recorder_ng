@@ -5,6 +5,7 @@
 #include <cctype>
 #include <stdexcept>
 #include <thread>
+#include <iostream>
 
 namespace cambuffer_recorder_ng
 {
@@ -86,6 +87,13 @@ void FakeCamera::configure(const CameraSettings& requested_settings)
     width_ = static_cast<int>(requested_settings.getOr<int64_t>("camera.width", width_));
     height_ = static_cast<int>(requested_settings.getOr<int64_t>("camera.height", height_));
     fps_ = static_cast<int>(requested_settings.getOr<double>("camera.fps", static_cast<double>(fps_)));
+    realtime_pacing_ = requested_settings.getOr<bool>("fake.realtime_pacing", realtime_pacing_);
+    std::cout << "[fakecam] realtime_pacing="
+          << (realtime_pacing_ ? "true" : "false")
+          << ", fps=" << fps_
+          << ", pixel_format=" << pixel_format_name_
+          << ", size=" << width_ << "x" << height_
+          << std::endl;
 
     pixel_format_name_ = canonicalPixelFormat(requested_settings.getOr<std::string>("camera.pixel_format", "rgb24"));
     pixel_format_ = parsePixelFormat(pixel_format_name_);
@@ -104,6 +112,7 @@ void FakeCamera::configure(const CameraSettings& requested_settings)
     effective_settings_.set("camera.pixel_format", pixel_format_name_);
     effective_settings_.set("camera.bytes_per_pixel", int64_t{bytes_per_pixel_});
     effective_settings_.set("camera.stride_bytes", int64_t{stride_bytes_});
+    effective_settings_.set("fake.realtime_pacing", realtime_pacing_);
     if (pixel_format_ == FakePixelFormat::BAYER_GBRG8) {
         effective_settings_.set("camera.bayer_pattern", std::string{"GBRG"});
     }
@@ -149,19 +158,21 @@ bool FakeCamera::grab(uint8_t*& data,
         return false;
     }
 
-    const auto frame_period = std::chrono::duration<double>(1.0 / static_cast<double>(fps_));
-    const auto frame_period_ns = std::chrono::duration_cast<std::chrono::steady_clock::duration>(frame_period);
+    if (realtime_pacing_) {
+        const auto frame_period = std::chrono::duration<double>(1.0 / static_cast<double>(fps_));
+        const auto frame_period_ns = std::chrono::duration_cast<std::chrono::steady_clock::duration>(frame_period);
 
-    const auto now = std::chrono::steady_clock::now();
-    if (next_frame_time_ > now) {
-        std::this_thread::sleep_until(next_frame_time_);
-    }
-    next_frame_time_ += frame_period_ns;
+        const auto now = std::chrono::steady_clock::now();
+        if (next_frame_time_ > now) {
+            std::this_thread::sleep_until(next_frame_time_);
+        }
+        next_frame_time_ += frame_period_ns;
 
-    // If the recorder fell behind, do not spend ages trying to catch up.
-    const auto after_sleep = std::chrono::steady_clock::now();
-    if (next_frame_time_ < after_sleep - frame_period_ns) {
-        next_frame_time_ = after_sleep + frame_period_ns;
+        // If the recorder fell behind, do not spend ages trying to catch up.
+        const auto after_sleep = std::chrono::steady_clock::now();
+        if (next_frame_time_ < after_sleep - frame_period_ns) {
+            next_frame_time_ = after_sleep + frame_period_ns;
+        }
     }
 
     ++frame_counter_;
