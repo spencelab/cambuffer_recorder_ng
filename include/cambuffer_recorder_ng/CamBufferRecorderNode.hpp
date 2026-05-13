@@ -10,6 +10,8 @@
 
 #include "cambuffer_recorder_ng/ICamera.hpp"
 #include "cambuffer_recorder_ng/Recorder.hpp"
+#include "cambuffer_recorder_ng/settings/CameraSettings.hpp"
+#include "cambuffer_recorder_ng/settings/SettingsManager.hpp"
 
 namespace cambuffer_recorder_ng
 {
@@ -34,15 +36,20 @@ protected:
     CallbackReturn on_activate(const rclcpp_lifecycle::State &) override;
     CallbackReturn on_deactivate(const rclcpp_lifecycle::State &) override;
     CallbackReturn on_shutdown(const rclcpp_lifecycle::State &) override;
-    
+
 private:
     void run_loop();
+    std::string metadataPathForOutput(const std::string& output_path) const;
 
     std::shared_ptr<ICamera> camera_;
     std::shared_ptr<Recorder> recorder_;
+    std::unique_ptr<SettingsManager> settings_manager_;
 
     std::thread worker_;
     std::atomic<bool> running_{false};
+
+    CameraSettings requested_settings_;
+    CameraSettings effective_settings_;
 
     std::string backend_{"fake"};
     int width_{640};

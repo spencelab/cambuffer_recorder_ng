@@ -1,6 +1,7 @@
 #include "cambuffer_recorder_ng/CamBufferRecorderNode.hpp"
 
 #include "cambuffer_recorder_ng/FakeCamera.hpp"
+#include "cambuffer_recorder_ng/settings/SettingsSerialization.hpp"
 
 #ifdef HAVE_XIMEA
 #include "cambuffer_recorder_ng/XiCamera.hpp"
@@ -62,20 +63,21 @@ std::string builtBackendSummary()
     return joinStrings(backends, ", ");
 }
 
+int settingIntOr(const CameraSettings& settings, const std::string& name, int fallback)
+{
+    return static_cast<int>(settings.getOr<int64_t>(name, static_cast<int64_t>(fallback)));
+}
+
 }  // namespace
 
 CamBufferRecorderNode::CamBufferRecorderNode()
-    : rclcpp_lifecycle::LifecycleNode("cambuffer_recorder_ng")
+    : rclcpp_lifecycle::LifecycleNode(
+          "cambuffer_recorder_ng",
+          rclcpp::NodeOptions()
+              .allow_undeclared_parameters(true)
+              .automatically_declare_parameters_from_overrides(true))
 {
-    declare_parameter<std::string>("backend", "fake");
-    declare_parameter<int>("width", 320);
-    declare_parameter<int>("height", 240);
-    declare_parameter<int>("fps", 30);
-    declare_parameter<std::string>("output_path", "/home/spencelab/fakecam_test.mp4");
-
-    // GenTL path. This is only used when backend:=gentl and HAVE_GENTL was built.
-    declare_parameter<std::string>("cti_path", "/opt/XIMEA/lib/ximea.gentl2.cti");
-    declare_parameter<int>("device_index", 0);
+    settings_manager_ = std::make_unique<SettingsManager>(*this);
 
     RCLCPP_INFO(get_logger(), "Camera backends built into this binary: %s",
                 builtBackendSummary().c_str());
@@ -84,22 +86,26 @@ CamBufferRecorderNode::CamBufferRecorderNode()
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 CamBufferRecorderNode::on_configure(const rclcpp_lifecycle::State &)
 {
-    width_  = get_parameter("width").as_int();
-    height_ = get_parameter("height").as_int();
-    fps_    = get_parameter("fps").as_int();
-
     backend_ = normalizeBackendName(get_parameter("backend").as_string());
+    requested_settings_ = settings_manager_->buildRequestedSettings(backend_);
+
+    width_ = settingIntOr(requested_settings_, "width", width_);
+    height_ = settingIntOr(requested_settings_, "height", height_);
+    fps_ = settingIntOr(requested_settings_, "fps", fps_);
+
     const std::string cti_path = get_parameter("cti_path").as_string();
-    const int device_index = get_parameter("device_index").as_int();
+    const int device_index = static_cast<int>(get_parameter("device_index").as_int());
 
     try {
         if (backend_ == "fake") {
             camera_ = std::make_shared<FakeCamera>(width_, height_, fps_);
+            camera_->configure(requested_settings_);
             camera_->open(device_index);
         }
         else if (backend_ == "xiapi") {
 #ifdef HAVE_XIMEA
             camera_ = std::make_shared<XiCamera>();
+            camera_->configure(requested_settings_);
             camera_->open(device_index);
 #else
             RCLCPP_ERROR(get_logger(),
@@ -112,6 +118,7 @@ CamBufferRecorderNode::on_configure(const rclcpp_lifecycle::State &)
         else if (backend_ == "gentl") {
 #ifdef HAVE_GENTL
             auto gentl_camera = std::make_shared<GenTLCamera>();
+            gentl_camera->configure(requested_settings_);
             gentl_camera->open(cti_path, device_index);
             camera_ = gentl_camera;
 #else
@@ -128,6 +135,11 @@ CamBufferRecorderNode::on_configure(const rclcpp_lifecycle::State &)
                          backend_.c_str(), builtBackendSummary().c_str());
             return CallbackReturn::FAILURE;
         }
+
+        effective_settings_ = camera_->effectiveSettings();
+        width_ = settingIntOr(effective_settings_, "width", width_);
+        height_ = settingIntOr(effective_settings_, "height", height_);
+        fps_ = settingIntOr(effective_settings_, "fps", fps_);
 
         RCLCPP_INFO(get_logger(),
                     "Configured backend '%s' (%dx%d @ %d fps). Built backends: %s",
@@ -150,8 +162,17 @@ CamBufferRecorderNode::on_activate(const rclcpp_lifecycle::State &)
 
     recorder_ = std::make_shared<Recorder>();
     const std::string output_path = get_parameter("output_path").as_string();
+    const std::string metadata_path = metadataPathForOutput(output_path);
 
     try {
+        effective_settings_ = camera_->effectiveSettings();
+        writeMetadataYaml(metadata_path,
+                          backend_,
+                          output_path,
+                          requested_settings_,
+                          effective_settings_);
+        RCLCPP_INFO(get_logger(), "Wrote metadata to %s", metadata_path.c_str());
+
         camera_->start();
 
         const bool recorder_started = recorder_->start(
@@ -218,6 +239,7 @@ CamBufferRecorderNode::on_shutdown(const rclcpp_lifecycle::State & previous_stat
         RCLCPP_INFO(get_logger(), "Stopping camera backend '%s' during shutdown.",
                     backend_.c_str());
         camera_->stop();
+        camera_->close();
         camera_.reset();
     }
 
@@ -255,6 +277,15 @@ void CamBufferRecorderNode::run_loop()
             last_heartbeat = now;
         }
     }
+}
+
+std::string CamBufferRecorderNode::metadataPathForOutput(const std::string& output_path) const
+{
+    const std::string explicit_path = get_parameter("metadata_path").as_string();
+    if (!explicit_path.empty()) {
+        return explicit_path;
+    }
+    return output_path + ".metadata.yaml";
 }
 
 }  // namespace cambuffer_recorder_ng
