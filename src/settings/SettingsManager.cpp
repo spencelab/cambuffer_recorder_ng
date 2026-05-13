@@ -90,6 +90,12 @@ void SettingsManager::declareParameters()
 
     declare_string("pipeline.debayer.enabled", "false");
     declare_double("pipeline.resize.scale", 1.0);
+    // Non-positive gains mean "use mode default". This lets modes provide sensible defaults
+    // while YAML/CLI can override any individual channel.
+    declare_bool("pipeline.white_balance.enabled", false);
+    declare_double("pipeline.white_balance.r_gain", 0.0);
+    declare_double("pipeline.white_balance.g_gain", 0.0);
+    declare_double("pipeline.white_balance.b_gain", 0.0);
 
     declare_string("output.dir", "/tmp");
     declare_string("output.prefix", "");
@@ -158,6 +164,10 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("camera.bayer_pattern", std::string{"GBRG"});
         s.set("pipeline.debayer.enabled", false);
         s.set("pipeline.resize.scale", 1.0);
+        s.set("pipeline.white_balance.enabled", true);
+        s.set("pipeline.white_balance.r_gain", 1.23);
+        s.set("pipeline.white_balance.g_gain", 1.00);
+        s.set("pipeline.white_balance.b_gain", 1.60);
         s.set("output.pixel_format", std::string{"raw8"});
         s.set("rolling.max_file_gib", 2.0);
         s.set("rolling.max_file_bytes", int64_t{0});
@@ -170,6 +180,10 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("output.pixel_format", std::string{"rgb24"});
         s.set("pipeline.debayer.enabled", false);
         s.set("pipeline.resize.scale", 1.0);
+        s.set("pipeline.white_balance.enabled", false);
+        s.set("pipeline.white_balance.r_gain", 1.0);
+        s.set("pipeline.white_balance.g_gain", 1.0);
+        s.set("pipeline.white_balance.b_gain", 1.0);
     }
 
     return s;
@@ -217,6 +231,16 @@ CameraSettings SettingsManager::readRosOverrides()
     set_string_if_nonempty("output.codec", "output.codec");
     set_string_if_nonempty("output.pixel_format", "output.pixel_format");
     set_string_if_nonempty("metadata_path", "metadata_path");
+
+    if (node_.get_parameter("pipeline.white_balance.enabled").as_bool()) {
+        s.set("pipeline.white_balance.enabled", true);
+    }
+    const double wb_r = node_.get_parameter("pipeline.white_balance.r_gain").as_double();
+    const double wb_g = node_.get_parameter("pipeline.white_balance.g_gain").as_double();
+    const double wb_b = node_.get_parameter("pipeline.white_balance.b_gain").as_double();
+    if (wb_r > 0.0) s.set("pipeline.white_balance.r_gain", wb_r);
+    if (wb_g > 0.0) s.set("pipeline.white_balance.g_gain", wb_g);
+    if (wb_b > 0.0) s.set("pipeline.white_balance.b_gain", wb_b);
 
     const double roll_gib = node_.get_parameter("rolling.max_file_gib").as_double();
     if (roll_gib > 0.0) s.set("rolling.max_file_gib", roll_gib);

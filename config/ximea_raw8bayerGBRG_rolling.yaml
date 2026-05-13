@@ -14,6 +14,13 @@ cambuffer_recorder_ng:
     output.dir: "/tmp"
     output.prefix: "ximea_raw8bayerGBRG_rolling"
 
+    # Preview/conversion-only white balance gains. Recording stays raw8 Bayer;
+    # raw_rolling_to_mp4 reads these from the metadata sidecar when making MP4 previews.
+    pipeline.white_balance.enabled: true
+    pipeline.white_balance.r_gain: 1.23
+    pipeline.white_balance.g_gain: 1.00
+    pipeline.white_balance.b_gain: 1.60
+
     rolling.max_file_gib: 2.0
     rolling.max_frames: 0
     rolling.pack_rows: true
