@@ -1,5 +1,9 @@
 #pragma once
+
 #include "cambuffer_recorder_ng/ICamera.hpp"
+
+#ifdef HAVE_XIMEA
+
 #include <m3api/xiApi.h>
 #include <cstdint>
 #include <cstddef>
@@ -27,3 +31,4 @@ private:
 
 } // namespace cambuffer_recorder_ng
 
+#endif  // HAVE_XIMEA
