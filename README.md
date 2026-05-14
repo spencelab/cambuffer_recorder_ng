@@ -510,3 +510,224 @@ video:6312kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing 
 
 Averages: grab 0.582733ms, debayer 3.33605ms, encode 1.18146ms, total 5.10024ms → 196.069 FPS
 ```
+
+### xi_ffmpeg_rgb_overlay_decimate 2048 700 2000 out_half.mp4 half
+
+1. get frame ximea full res, it has debayered
+2. copy to buffer *3
+3. use opencv resize to decimate and also scale by 1.7 to brighten!
+4. add frame counter and time stamp overlays
+5. write to ultrafast libx264 ffmpeg stream
+
+In times below, decimate is included in overlay, not grab.
+
+Hits 127FPS free run on oldest M73. 46 seconds is 30.1MB. Quality = meh, but probably good enough. Try it, could record for hours...
+
+```
+spencelab@ros2test:~/ros2_ws/src/cambuffer_recorder_ng/src$ ./xi_ffmpeg_rgb_overlay_decimate 2048 700 2000 out_half.mp4 half
+xiAPI: ---- xiOpenDevice API:V4.27.30.00 started ----
+xiAPI: XIMEA Camera API V4.27.30.00
+xiAPI: Adding camera context: dwID=28773051  ptr=1203C000 processID=0000141D
+xiAPI: Create handles 1 Process 0000141D
+xiAPI: xiOpenDevice - legacy SN used for identification 28773051
+xiAPI: Enable sensor
+xiAPI: Calib data: Freq 0030 BL 3FCC ADC 002B bData 2B
+xiAPI: OK retrains 0
+xiAPI: xiReadFileFFS Time needed to read file SensFPNCorrections :211ms
+xiAPI: xiReadFileFFS Time needed to read file SensFPNCorrections :227ms
+xiAPI: Sensor SetExposure freq=48MHz exp=0us regexp=x1
+xiAPI: Time needed to read BPL:9ms
+xiAPI: Successfully parsed BPL file, 126 total corrected pixels
+xiAPI: Sensor SetExposure freq=48MHz exp=0us regexp=x1
+xiAPI: AutoSetBandwidth measurement
+xiAPI: CalculateResources : Context 1203C000 ID 28773051 m_maxBytes=1024 m_maxBufferSize=1048576
+xiAPI: PoolAllocUSB30: zerocopy not available
+xiAPI: Failed to change thread scheduler, check user limit for realtime priority.
+xiAPI: AutoSetBandwidth measured 3626Mbps. Safe margin 10% will be used.
+xiAPI: Current bandwidth limit auto-set to 3263 Mbps (min:80Mbps,max:3626Mbps)
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: ---- Device opened. Model:MQ022CG-CM SN:28773051 FwF1: API:V4.27.30.00 ----
+xiAPI: Calib data: Freq 0030 BL 3FCC ADC 002B bData 2B
+xiAPI: OK retrains 0
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: Sensor SetExposure freq=48MHz exp=2000us regexp=x2E4
+Opened camera, HALF-res decimation
+xiAPI: Calib data: Freq 002F BL 3FCD ADC 002B bData 2B
+xiAPI: OK retrains 0
+xiAPI: Sensor SetExposure freq=47MHz exp=2000us regexp=x2D4
+xiAPI: Sensor SetExposure freq=47MHz exp=2000us regexp=x2D4
+xiAPI: CalculateResources : Context 1203C000 ID 28773051 m_maxBytes=1024 m_maxBufferSize=1048576
+xiAPI: PoolAllocUSB30: zerocopy not available
+xiAPI: StartVideoStream
+xiAPI: Failed to change thread scheduler, check user limit for realtime priority.
+xiAPI: WorkerThread is up
+ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021 the FFmpeg developers
+  built with gcc 11 (Ubuntu 11.2.0-19ubuntu1)
+  configuration: --prefix=/usr --extra-version=0ubuntu0.22.04.1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --enable-gnutls --enable-ladspa --enable-libaom --enable-libass --enable-libbluray --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libjack --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-libpulse --enable-librabbitmq --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libssh --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-libzmq --enable-libzvbi --enable-lv2 --enable-omx --enable-openal --enable-opencl --enable-opengl --enable-sdl2 --enable-pocketsphinx --enable-librsvg --enable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-libx264 --enable-shared
+  libavutil      56. 70.100 / 56. 70.100
+  libavcodec     58.134.100 / 58.134.100
+  libavformat    58. 76.100 / 58. 76.100
+  libavdevice    58. 13.100 / 58. 13.100
+  libavfilter     7.110.100 /  7.110.100
+  libswscale      5.  9.100 /  5.  9.100
+  libswresample   3.  9.100 /  3.  9.100
+  libpostproc    55.  9.100 / 55.  9.100
+Input #0, rawvideo, from 'pipe:0':
+  Duration: N/A, start: 0.000000, bitrate: 1032192 kb/s
+  Stream #0:0: Video: rawvideo (BGR[24] / 0x18524742), bgr24, 1024x350, 1032192 kb/s, 120 fps, 120 tbr, 120 tbn, 120 tbc
+Stream mapping:
+  Stream #0:0 -> #0:0 (rawvideo (native) -> h264 (libx264))
+[libx264 @ 0x654330014b00] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x654330014b00] profile Constrained Baseline, level 3.2, 4:2:0, 8-bit
+[libx264 @ 0x654330014b00] 264 - core 163 r3060 5db6aa6 - H.264/MPEG-4 AVC codec - Copyleft 2003-2021 - http://www.videolan.org/x264.html - options: cabac=0 ref=1 deblock=0:0:0 analyse=0:0 me=dia subme=0 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=0 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=6 lookahead_threads=1 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=0 weightp=0 keyint=250 keyint_min=25 scenecut=0 intra_refresh=0 rc=crf mbtree=0 crf=16.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=0
+Output #0, mp4, to 'out_half.mp4':
+  Metadata:
+    encoder         : Lavf58.76.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1024x350, q=2-31, 120 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc58.134.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+F50 grab=5.77084ms overlay=1.12178ms encode=2.39574ms → 107.662 FPSN/A speed=   0x    
+F100 grab=5.65258ms overlay=1.02184ms encode=1.83692ms → 117.49 FPS=4194.5kbits/s speed=0.99x    
+F150 grab=5.58938ms overlay=1.00367ms encode=1.6544ms → 121.249 FPS=5991.9kbits/s speed=1.04x    
+F200 grab=5.60916ms overlay=0.977781ms encode=1.53762ms → 123.084 FPS242.9kbits/s speed=1.05x    
+F250 grab=5.58748ms overlay=0.96878ms encode=1.49453ms → 124.211 FPS
+F300 grab=5.56487ms overlay=0.966993ms encode=1.46686ms → 125.02 FPS5898.2kbits/s speed=1.06x    
+F350 grab=5.55659ms overlay=0.966338ms encode=1.43632ms → 125.64 FPS6252.4kbits/s speed=1.06x    
+F400 grab=5.57054ms overlay=0.957618ms encode=1.41476ms → 125.898 FPS837.4kbits/s speed=1.06x    
+F450 grab=5.56755ms overlay=0.954692ms encode=1.39351ms → 126.33 FPS
+F500 grab=5.56236ms overlay=0.952028ms encode=1.38344ms → 126.617 FPS110.9kbits/s speed=1.07x    
+F550 grab=5.55888ms overlay=0.951756ms encode=1.37224ms → 126.857 FPS829.9kbits/s speed=1.07x    
+F600 grab=5.5566ms overlay=0.952128ms encode=1.3705ms → 126.916 FPS=6032.9kbits/s speed=1.07x    
+F650 grab=5.5465ms overlay=0.94809ms encode=1.36741ms → 127.194 FPS
+F700 grab=5.54266ms overlay=0.945122ms encode=1.36636ms → 127.321 FPS816.4kbits/s speed=1.07x    
+F750 grab=5.54476ms overlay=0.946557ms encode=1.35622ms → 127.429 FPS983.5kbits/s speed=1.07x    
+F800 grab=5.54543ms overlay=0.948261ms encode=1.34667ms → 127.545 FPS807.5kbits/s speed=1.07x    
+F850 grab=5.55178ms overlay=0.945662ms encode=1.33767ms → 127.631 FPS
+F900 grab=5.55112ms overlay=0.946951ms encode=1.3316ms → 127.719 FPS5949.4kbits/s speed=1.07x    
+F950 grab=5.55473ms overlay=0.945187ms encode=1.32546ms → 127.789 FPS070.7kbits/s speed=1.07x    
+F1000 grab=5.55064ms overlay=0.946114ms encode=1.32683ms → 127.819 FPS18.3kbits/s speed=1.07x    
+F1050 grab=5.5516ms overlay=0.943402ms encode=1.32362ms → 127.9 FPS
+F1100 grab=5.55386ms overlay=0.942095ms encode=1.3188ms → 127.963 FPS026.3kbits/s speed=1.07x    
+F1150 grab=5.55263ms overlay=0.942617ms encode=1.31631ms → 128.016 FPS00.0kbits/s speed=1.07x    
+F1200 grab=5.55185ms overlay=0.944444ms encode=1.31259ms → 128.059 FPS02.1kbits/s speed=1.07x    
+F1250 grab=5.55415ms overlay=0.943562ms encode=1.30875ms → 128.099 FPS85.6kbits/s speed=1.07x    
+F1300 grab=5.55586ms overlay=0.940573ms encode=1.30756ms → 128.14 FPS
+F1350 grab=5.55957ms overlay=0.939804ms encode=1.30301ms → 128.166 FPS82.7kbits/s speed=1.07x    
+F1400 grab=5.55743ms overlay=0.941019ms encode=1.30143ms → 128.207 FPS78.1kbits/s speed=1.07x    
+F1450 grab=5.56063ms overlay=0.943601ms encode=1.29911ms → 128.15 FPS783.2kbits/s speed=1.07x    
+F1500 grab=5.55554ms overlay=0.942291ms encode=1.2986ms → 128.264 FPS
+F1550 grab=5.55783ms overlay=0.941446ms encode=1.29525ms → 128.295 FPS72.0kbits/s speed=1.07x    
+F1600 grab=5.55535ms overlay=0.941205ms encode=1.29668ms → 128.316 FPS85.2kbits/s speed=1.07x    
+F1650 grab=5.55439ms overlay=0.942236ms encode=1.29642ms → 128.32 FPS705.5kbits/s speed=1.07x    
+F1700 grab=5.55543ms overlay=0.941234ms encode=1.29383ms → 128.362 FPS
+F1750 grab=5.55275ms overlay=0.941526ms encode=1.29491ms → 128.383 FPS80.1kbits/s speed=1.07x    
+F1800 grab=5.55246ms overlay=0.941118ms encode=1.29388ms → 128.412 FPS06.5kbits/s speed=1.07x    
+F1850 grab=5.55564ms overlay=0.940553ms encode=1.29157ms → 128.407 FPS38.2kbits/s speed=1.07x    
+F1900 grab=5.55661ms overlay=0.939934ms encode=1.28952ms → 128.435 FPS
+F1950 grab=5.55532ms overlay=0.940123ms encode=1.28941ms → 128.455 FPS07.4kbits/s speed=1.07x    
+F2000 grab=5.55361ms overlay=0.941235ms encode=1.28912ms → 128.469 FPS43.7kbits/s speed=1.07x    
+F2050 grab=5.55004ms overlay=0.943841ms encode=1.28908ms → 128.486 FPS84.1kbits/s speed=1.07x    
+F2100 grab=5.5504ms overlay=0.94268ms encode=1.28843ms → 128.51 FPS
+F2150 grab=5.55135ms overlay=0.942121ms encode=1.28773ms → 128.515 FPS48.5kbits/s speed=1.07x    
+F2200 grab=5.55018ms overlay=0.942436ms encode=1.2877ms → 128.529 FPS595.0kbits/s speed=1.07x    
+F2250 grab=5.5479ms overlay=0.943671ms encode=1.28765ms → 128.548 FPS544.6kbits/s speed=1.07x    
+F2300 grab=5.54997ms overlay=0.942556ms encode=1.28626ms → 128.555 FPS04.6kbits/s speed=1.07x    
+F2350 grab=5.55059ms overlay=0.941684ms encode=1.28586ms → 128.566 FPS
+F2400 grab=5.55003ms overlay=0.941587ms encode=1.2856ms → 128.581 FPS559.1kbits/s speed=1.07x    
+F2450 grab=5.55054ms overlay=0.941819ms encode=1.28448ms → 128.587 FPS11.5kbits/s speed=1.07x    
+F2500 grab=5.55091ms overlay=0.941696ms encode=1.28594ms → 128.559 FPS66.4kbits/s speed=1.07x    
+F2550 grab=5.54942ms overlay=0.941214ms encode=1.28494ms → 128.608 FPS
+F2600 grab=5.54957ms overlay=0.941355ms encode=1.28419ms → 128.616 FPS26.6kbits/s speed=1.07x    
+F2650 grab=5.54862ms overlay=0.942064ms encode=1.28357ms → 128.63 FPS483.4kbits/s speed=1.07x    
+F2700 grab=5.54934ms overlay=0.942689ms encode=1.28274ms → 128.621 FPS42.3kbits/s speed=1.07x    
+F2750 grab=5.549ms overlay=0.942096ms encode=1.28255ms → 128.64 FPS
+F2800 grab=5.54918ms overlay=0.942406ms encode=1.2815ms → 128.649 FPS403.1kbits/s speed=1.07x    
+F2850 grab=5.54943ms overlay=0.942446ms encode=1.28056ms → 128.66 FPS455.3kbits/s speed=1.07x    
+F2900 grab=5.54931ms overlay=0.942492ms encode=1.28039ms → 128.664 FPS30.3kbits/s speed=1.07x    
+F2950 grab=5.54917ms overlay=0.94208ms encode=1.27996ms → 128.68 FPS
+F3000 grab=5.5478ms overlay=0.942866ms encode=1.28044ms → 128.682 FPS296.3kbits/s speed=1.07x    
+F3050 grab=5.54859ms overlay=0.942378ms encode=1.27978ms → 128.688 FPS47.3kbits/s speed=1.07x    
+F3100 grab=5.5481ms overlay=0.942619ms encode=1.28008ms → 128.687 FPS314.4kbits/s speed=1.07x    
+F3150 grab=5.54846ms overlay=0.94198ms encode=1.27927ms → 128.705 FPS
+F3200 grab=5.54833ms overlay=0.941813ms encode=1.2796ms → 128.704 FPS282.9kbits/s speed=1.07x    
+F3250 grab=5.5492ms overlay=0.941791ms encode=1.27789ms → 128.719 FPS177.5kbits/s speed=1.07x    
+F3300 grab=5.54875ms overlay=0.942349ms encode=1.2776ms → 128.722 FPS226.9kbits/s speed=1.07x    
+F3350 grab=5.54956ms overlay=0.941837ms encode=1.2769ms → 128.728 FPS198.9kbits/s speed=1.07x    
+F3400 grab=5.55162ms overlay=0.941023ms encode=1.27555ms → 128.73 FPS
+F3450 grab=5.55241ms overlay=0.941278ms encode=1.27432ms → 128.733 FPS75.1kbits/s speed=1.07x    
+F3500 grab=5.55179ms overlay=0.941333ms encode=1.27437ms → 128.742 FPS49.2kbits/s speed=1.07x    
+F3550 grab=5.55377ms overlay=0.941121ms encode=1.27421ms → 128.715 FPS24.3kbits/s speed=1.07x    
+F3600 grab=5.55202ms overlay=0.940491ms encode=1.27435ms → 128.752 FPS
+F3650 grab=5.55227ms overlay=0.940054ms encode=1.27431ms → 128.756 FPS03.1kbits/s speed=1.07x    
+F3700 grab=5.5522ms overlay=0.940535ms encode=1.27362ms → 128.761 FPS079.8kbits/s speed=1.07x    
+F3750 grab=5.55233ms overlay=0.940654ms encode=1.2741ms → 128.749 FPS057.4kbits/s speed=1.07x    
+F3800 grab=5.5515ms overlay=0.940756ms encode=1.27352ms → 128.77 FPS
+F3850 grab=5.55069ms overlay=0.941062ms encode=1.27365ms → 128.776 FPS35.8kbits/s speed=1.07x    
+F3900 grab=5.55033ms overlay=0.941539ms encode=1.27332ms → 128.78 FPS014.9kbits/s speed=1.07x    
+F3950 grab=5.54952ms overlay=0.941666ms encode=1.27413ms → 128.778 FPS94.7kbits/s speed=1.07x    
+F4000 grab=5.54936ms overlay=0.941511ms encode=1.27382ms → 128.788 FPS
+F4050 grab=5.54949ms overlay=0.941609ms encode=1.27347ms → 128.79 FPS975.2kbits/s speed=1.07x    
+F4100 grab=5.54936ms overlay=0.941812ms encode=1.27293ms → 128.798 FPS56.3kbits/s speed=1.07x    
+F4150 grab=5.54799ms overlay=0.94237ms encode=1.27371ms → 128.798 FPS938.1kbits/s speed=1.07x    
+F4200 grab=5.54928ms overlay=0.941946ms encode=1.27297ms → 128.796 FPS
+F4250 grab=5.54945ms overlay=0.94146ms encode=1.27287ms → 128.803 FPS920.4kbits/s speed=1.07x    
+F4300 grab=5.54767ms overlay=0.94198ms encode=1.27372ms → 128.81 FPS4903.2kbits/s speed=1.07x    
+F4350 grab=5.54837ms overlay=0.941863ms encode=1.27302ms → 128.812 FPS86.6kbits/s speed=1.07x    
+F4400 grab=5.54971ms overlay=0.941376ms encode=1.272ms → 128.815 FPS4870.4kbits/s speed=1.07x    
+F4450 grab=5.55043ms overlay=0.940842ms encode=1.27161ms → 128.818 FPS
+F4500 grab=5.54977ms overlay=0.940877ms encode=1.27204ms → 128.821 FPS55.9kbits/s speed=1.07x    
+F4550 grab=5.54909ms overlay=0.941109ms encode=1.2723ms → 128.825 FPS841.7kbits/s speed=1.07x    
+F4600 grab=5.55083ms overlay=0.94072ms encode=1.27179ms → 128.81 FPS4826.9kbits/s speed=1.07x    
+F4650 grab=5.55075ms overlay=0.940351ms encode=1.27109ms → 128.83 FPS
+F4700 grab=5.55027ms overlay=0.940138ms encode=1.27166ms → 128.832 FPS14.6kbits/s speed=1.07x    
+F4750 grab=5.55009ms overlay=0.94014ms encode=1.27141ms → 128.839 FPS800.6kbits/s speed=1.07x    
+F4800 grab=5.55119ms overlay=0.940053ms encode=1.27141ms → 128.822 FPS87.0kbits/s speed=1.07x    
+F4850 grab=5.55167ms overlay=0.939708ms encode=1.27031ms → 128.838 FPS
+F4900 grab=5.55081ms overlay=0.93984ms encode=1.27064ms → 128.845 FPS775.7kbits/s speed=1.07x    
+F4950 grab=5.54969ms overlay=0.940204ms encode=1.2714ms → 128.845 FPS814.0kbits/s speed=1.07x    
+F5000 grab=5.54961ms overlay=0.940308ms encode=1.2714ms → 128.844 FPS800.7kbits/s speed=1.07x    
+F5050 grab=5.54973ms overlay=0.940059ms encode=1.27093ms → 128.854 FPS
+F5100 grab=5.55041ms overlay=0.940023ms encode=1.27023ms → 128.855 FPS37.7kbits/s speed=1.07x    
+F5150 grab=5.5504ms overlay=0.940158ms encode=1.26999ms → 128.857 FPS824.4kbits/s speed=1.07x    
+F5200 grab=5.55143ms overlay=0.939887ms encode=1.26952ms → 128.852 FPS11.5kbits/s speed=1.07x    
+F5250 grab=5.56471ms overlay=0.946702ms encode=1.27637ms → 128.406 FPS15.5kbits/s speed=1.07x    
+F5300 grab=5.56305ms overlay=0.946158ms encode=1.27562ms → 128.455 FPS50.6kbits/s speed=1.07x    
+F5350 grab=5.56424ms overlay=0.945804ms encode=1.27456ms → 128.459 FPS
+F5400 grab=5.56448ms overlay=0.945326ms encode=1.27448ms → 128.464 FPS84.7kbits/s speed=1.07x    
+F5450 grab=5.56533ms overlay=0.944918ms encode=1.27365ms → 128.47 FPS871.7kbits/s speed=1.07x    
+F5500 grab=5.56649ms overlay=0.944963ms encode=1.27329ms → 128.456 FPS06.6kbits/s speed=1.07x    
+F5550 grab=5.56502ms overlay=0.945069ms encode=1.27339ms → 128.477 FPS
+F5600 grab=5.56479ms overlay=0.945058ms encode=1.27305ms → 128.487 FPS93.6kbits/s speed=1.07x    
+F5650 grab=5.56495ms overlay=0.944801ms encode=1.27287ms → 128.491 FPS25.7kbits/s speed=1.07x    
+F5700 grab=5.58688ms overlay=0.952894ms encode=1.27922ms → 127.894 FPS26.6kbits/s speed=1.07x    
+F5750 grab=5.58498ms overlay=0.952879ms encode=1.27916ms → 127.926 FPS66.4kbits/s speed=1.07x    
+F5800 grab=5.58491ms overlay=0.952329ms encode=1.27908ms → 127.937 FPS96.7kbits/s speed=1.07x    
+F5850 grab=5.58487ms overlay=0.951887ms encode=1.27903ms → 127.946 FPS
+F5900 grab=5.58371ms overlay=0.952008ms encode=1.2795ms → 127.955 FPS983.3kbits/s speed=1.07x    
+^CExiting normally, received signal 2.
+xiAPI: WorkerThread is down: ret 0
+xiAPI: xiCloseDevice
+xiAPI: DisableSensor
+xiAPI: DisableDevice
+xiAPI: deleting camera context: dwID=28773051, ptr=1203c000 processID=0000141D
+frame= 5917 fps=128 q=-1.0 Lsize=   30222kB time=00:00:49.30 bitrate=5021.8kbits/s speed=1.07x    
+video:30197kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.080817%
+[libx264 @ 0x654330014b00] frame I:24    Avg QP:15.88  size: 61020
+[libx264 @ 0x654330014b00] frame P:5893  Avg QP:18.99  size:  4999
+[libx264 @ 0x654330014b00] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x654330014b00] mb P  I16..4:  7.5%  0.0%  0.0%  P16..4: 35.4%  0.0%  0.0%  0.0%  0.0%    skip:57.1%
+[libx264 @ 0x654330014b00] coded y,uvDC,uvAC intra: 21.4% 27.5% 3.2% inter: 14.8% 20.4% 7.2%
+[libx264 @ 0x654330014b00] i16 v,h,dc,p: 51% 23% 13% 12%
+[libx264 @ 0x654330014b00] i8c dc,h,v,p: 66% 13% 19%  1%
+[libx264 @ 0x654330014b00] kb/s:5016.80
+Exiting normally, received signal 2.
+
+Average timings (5917 frames):
+grab=5.58197ms overlay=0.952166ms encode=1.27955ms total=7.81368ms → 127.981 FPS
+Elapsed real time: 46.4145 s
+```
+
