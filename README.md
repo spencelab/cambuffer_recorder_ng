@@ -57,6 +57,14 @@ DEFAULT BAYER APPEARS TO BE GBRG!!!!
 
       BayerPattern pattern = BayerPattern::GBRG; // default
 
+### Video mode comparisons:
+
+Need to make a table, but
+
+1. You can do full 2048x700x7 raw bayer into binaries at apparnetly up to 170fps, likely 125 is good margin. Need to test reliability with hardware trigger, might need a RAM buffer for it to be solid. Find out! test binary: xi_raw_rolling.
+2. 
+
+
 ### Speed tests:
 
 Even the ancient M73 with 128gb 2.5inch SSD can stream 2048x700x8 bayer directly to SSD though there maybe some blips to take care of with buffers etc.
@@ -304,7 +312,99 @@ Need to handle dropped frames.
 Let's say you do 5 minutes, that'd be better.
 
 Try it, see if the system can handle it.
+Capturing 300 frames using pattern GBRG
+xiAPI: ---- xiOpenDevice API:V4.27.30.00 started ----
+xiAPI: XIMEA Camera API V4.27.30.00
+xiAPI: Adding camera context: dwID=28773051  ptr=3E676000 processID=00001328
+xiAPI: Create handles 1 Process 00001328
+xiAPI: xiOpenDevice - legacy SN used for identification 28773051
+xiAPI: Enable sensor
+xiAPI: Calib data: Freq 0030 BL 3FCC ADC 002B bData 2B
+xiAPI: OK retrains 0
+xiAPI: xiReadFileFFS Time needed to read file SensFPNCorrections :205ms
+xiAPI: xiReadFileFFS Time needed to read file SensFPNCorrections :227ms
+xiAPI: Sensor SetExposure freq=48MHz exp=0us regexp=x1
+xiAPI: Time needed to read BPL:9ms
+xiAPI: Successfully parsed BPL file, 126 total corrected pixels
+xiAPI: Sensor SetExposure freq=48MHz exp=0us regexp=x1
+xiAPI: AutoSetBandwidth measurement
+xiAPI: CalculateResources : Context 3E676000 ID 28773051 m_maxBytes=1024 m_maxBufferSize=1048576
+xiAPI: PoolAllocUSB30: zerocopy not available
+xiAPI: Failed to change thread scheduler, check user limit for realtime priority.
+xiAPI: AutoSetBandwidth measured 3626Mbps. Safe margin 10% will be used.
+xiAPI: Current bandwidth limit auto-set to 3263 Mbps (min:80Mbps,max:3626Mbps)
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: ---- Device opened. Model:MQ022CG-CM SN:28773051 FwF1: API:V4.27.30.00 ----
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: Sensor SetExposure freq=48MHz exp=2000us regexp=x2E4
+xiAPI: XIA(0b40):xiGetParam (padding_x) Finished with ERROR: 100
+XI config: width=2048 height=704 exposure(us)=2000 padding_x=0 data_format=5 (expect RAW8=5)
+==== Camera ROI and Debayer Config ====
+Sensor ROI: 2048 x 704
+DebayerHalf Output: 1024 x 352 (1081344 bytes per RGB frame)
+=======================================
+xiAPI: Sensor SetExposure freq=48MHz exp=2000us regexp=x2E4
+xiAPI: CalculateResources : Context 3E676000 ID 28773051 m_maxBytes=1024 m_maxBufferSize=1048576
+xiAPI: PoolAllocUSB30: zerocopy not available
+xiAPI: StartVideoStream
+xiAPI: Failed to change thread scheduler, check user limit for realtime priority.
+xiAPI: WorkerThread is up
+xiAPI: XIA(0b40):xiGetParam (padding_x) Finished with ERROR: 100
+ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021 the FFmpeg developers
+  built with gcc 11 (Ubuntu 11.2.0-19ubuntu1)
+  configuration: --prefix=/usr --extra-version=0ubuntu0.22.04.1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --enable-gnutls --enable-ladspa --enable-libaom --enable-libass --enable-libbluray --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libjack --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-libpulse --enable-librabbitmq --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libssh --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-libzmq --enable-libzvbi --enable-lv2 --enable-omx --enable-openal --enable-opencl --enable-opengl --enable-sdl2 --enable-pocketsphinx --enable-librsvg --enable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-libx264 --enable-shared
+  libavutil      56. 70.100 / 56. 70.100
+  libavcodec     58.134.100 / 58.134.100
+  libavformat    58. 76.100 / 58. 76.100
+  libavdevice    58. 13.100 / 58. 13.100
+  libavfilter     7.110.100 /  7.110.100
+  libswscale      5.  9.100 /  5.  9.100
+  libswresample   3.  9.100 /  3.  9.100
+  libpostproc    55.  9.100 / 55.  9.100
+Frame 0 grab:5.76355ms debayer:2.69285ms enc:117.357ms
+Input #0, rawvideo, from 'pipe:0':
+  Duration: N/A, start: 0.000000, bitrate: 865075 kb/s
+  Stream #0:0: Video: rawvideo (BGR[24] / 0x18524742), bgr24, 1024x352, 865075 kb/s, 100 tbr, 100 tbn, 100 tbc
+Stream mapping:
+  Stream #0:0 -> #0:0 (rawvideo (native) -> h264 (libx264))
+[libx264 @ 0x5f9321c42340] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x5f9321c42340] profile Constrained Baseline, level 3.2, 4:2:0, 8-bit
+[libx264 @ 0x5f9321c42340] 264 - core 163 r3060 5db6aa6 - H.264/MPEG-4 AVC codec - Copyleft 2003-2021 - http://www.videolan.org/x264.html - options: cabac=0 ref=1 deblock=0:0:0 analyse=0:0 me=dia subme=0 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=0 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=6 lookahead_threads=1 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=0 weightp=0 keyint=250 keyint_min=25 scenecut=0 intra_refresh=0 rc=crf mbtree=0 crf=18.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=0
+Output #0, mp4, to 'xi_stream_test.mp4':
+  Metadata:
+    encoder         : Lavf58.76.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1024x352, q=2-31, 100 fps, 12800 tbn
+    Metadata:
+      encoder         : Lavc58.134.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+Frame 30 grab:0.384419ms debayer:2.8152ms enc:0.58171ms.00 bitrate=N/A speed=   0x    
+Frame 60 grab:0.510787ms debayer:3.80202ms enc:0.485159ms
+Frame 90 grab:0.392112ms debayer:2.85559ms enc:0.660239ms
+Frame 120 grab:0.614718ms debayer:2.55987ms enc:0.431143ms9 bitrate=16945.7kbits/s speed=1.98x    
+Frame 150 grab:0.418454ms debayer:2.90218ms enc:0.701742ms
+Frame 180 grab:0.395861ms debayer:2.80464ms enc:0.666145ms
+Frame 210 grab:0.400262ms debayer:2.9442ms enc:0.409413ms
+Frame 240 grab:0.659385ms debayer:4.18805ms enc:0.790951ms0 bitrate=16976.5kbits/s speed=2.09x    
+Frame 270 grab:0.474756ms debayer:2.90569ms enc:0.471305ms
+xiAPI: WorkerThread is down: ret 0
+xiAPI: xiCloseDevice
+xiAPI: DisableSensor
+xiAPI: DisableDevice
+xiAPI: deleting camera context: dwID=28773051, ptr=3e676000 processID=00001328
+frame=  300 fps=197 q=-1.0 Lsize=    6314kB time=00:00:02.99 bitrate=17297.7kbits/s speed=1.97x    
+video:6312kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.033065%
+[libx264 @ 0x5f9321c42340] frame I:2     Avg QP:17.00  size:118556
+[libx264 @ 0x5f9321c42340] frame P:298   Avg QP:22.37  size: 20890
+[libx264 @ 0x5f9321c42340] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x5f9321c42340] mb P  I16..4:  0.1%  0.0%  0.0%  P16..4: 48.2%  0.0%  0.0%  0.0%  0.0%    skip:51.8%
+[libx264 @ 0x5f9321c42340] coded y,uvDC,uvAC intra: 81.1% 61.2% 55.5% inter: 40.0% 29.8% 23.7%
+[libx264 @ 0x5f9321c42340] i16 v,h,dc,p: 38% 22% 26% 13%
+[libx264 @ 0x5f9321c42340] i8c dc,h,v,p: 57% 13% 24%  6%
+[libx264 @ 0x5f9321c42340] kb/s:17233.16
 
+Averages: grab 0.582733ms, debayer 3.33605ms, encode 1.18146ms, total 5.10024ms → 196.069 FPS
 Write the frame num on it. How many frames is that?
 
 60,000 frames, not so bad.
@@ -312,3 +412,101 @@ Write the frame num on it. How many frames is that?
 
 ```
 
+# Speed Test Outputs:
+
+### xi_grab_debayer_ffmpeg_stream
+```
+Capturing 300 frames using pattern GBRG
+xiAPI: ---- xiOpenDevice API:V4.27.30.00 started ----
+xiAPI: XIMEA Camera API V4.27.30.00
+xiAPI: Adding camera context: dwID=28773051  ptr=3E676000 processID=00001328
+xiAPI: Create handles 1 Process 00001328
+xiAPI: xiOpenDevice - legacy SN used for identification 28773051
+xiAPI: Enable sensor
+xiAPI: Calib data: Freq 0030 BL 3FCC ADC 002B bData 2B
+xiAPI: OK retrains 0
+xiAPI: xiReadFileFFS Time needed to read file SensFPNCorrections :205ms
+xiAPI: xiReadFileFFS Time needed to read file SensFPNCorrections :227ms
+xiAPI: Sensor SetExposure freq=48MHz exp=0us regexp=x1
+xiAPI: Time needed to read BPL:9ms
+xiAPI: Successfully parsed BPL file, 126 total corrected pixels
+xiAPI: Sensor SetExposure freq=48MHz exp=0us regexp=x1
+xiAPI: AutoSetBandwidth measurement
+xiAPI: CalculateResources : Context 3E676000 ID 28773051 m_maxBytes=1024 m_maxBufferSize=1048576
+xiAPI: PoolAllocUSB30: zerocopy not available
+xiAPI: Failed to change thread scheduler, check user limit for realtime priority.
+xiAPI: AutoSetBandwidth measured 3626Mbps. Safe margin 10% will be used.
+xiAPI: Current bandwidth limit auto-set to 3263 Mbps (min:80Mbps,max:3626Mbps)
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: ---- Device opened. Model:MQ022CG-CM SN:28773051 FwF1: API:V4.27.30.00 ----
+xiAPI: Sensor SetExposure freq=48MHz exp=16us regexp=x1
+xiAPI: Sensor SetExposure freq=48MHz exp=2000us regexp=x2E4
+xiAPI: XIA(0b40):xiGetParam (padding_x) Finished with ERROR: 100
+XI config: width=2048 height=704 exposure(us)=2000 padding_x=0 data_format=5 (expect RAW8=5)
+==== Camera ROI and Debayer Config ====
+Sensor ROI: 2048 x 704
+DebayerHalf Output: 1024 x 352 (1081344 bytes per RGB frame)
+=======================================
+xiAPI: Sensor SetExposure freq=48MHz exp=2000us regexp=x2E4
+xiAPI: CalculateResources : Context 3E676000 ID 28773051 m_maxBytes=1024 m_maxBufferSize=1048576
+xiAPI: PoolAllocUSB30: zerocopy not available
+xiAPI: StartVideoStream
+xiAPI: Failed to change thread scheduler, check user limit for realtime priority.
+xiAPI: WorkerThread is up
+xiAPI: XIA(0b40):xiGetParam (padding_x) Finished with ERROR: 100
+ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021 the FFmpeg developers
+  built with gcc 11 (Ubuntu 11.2.0-19ubuntu1)
+  configuration: --prefix=/usr --extra-version=0ubuntu0.22.04.1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --enable-gnutls --enable-ladspa --enable-libaom --enable-libass --enable-libbluray --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libjack --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-libpulse --enable-librabbitmq --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libssh --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-libzmq --enable-libzvbi --enable-lv2 --enable-omx --enable-openal --enable-opencl --enable-opengl --enable-sdl2 --enable-pocketsphinx --enable-librsvg --enable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-libx264 --enable-shared
+  libavutil      56. 70.100 / 56. 70.100
+  libavcodec     58.134.100 / 58.134.100
+  libavformat    58. 76.100 / 58. 76.100
+  libavdevice    58. 13.100 / 58. 13.100
+  libavfilter     7.110.100 /  7.110.100
+  libswscale      5.  9.100 /  5.  9.100
+  libswresample   3.  9.100 /  3.  9.100
+  libpostproc    55.  9.100 / 55.  9.100
+Frame 0 grab:5.76355ms debayer:2.69285ms enc:117.357ms
+Input #0, rawvideo, from 'pipe:0':
+  Duration: N/A, start: 0.000000, bitrate: 865075 kb/s
+  Stream #0:0: Video: rawvideo (BGR[24] / 0x18524742), bgr24, 1024x352, 865075 kb/s, 100 tbr, 100 tbn, 100 tbc
+Stream mapping:
+  Stream #0:0 -> #0:0 (rawvideo (native) -> h264 (libx264))
+[libx264 @ 0x5f9321c42340] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x5f9321c42340] profile Constrained Baseline, level 3.2, 4:2:0, 8-bit
+[libx264 @ 0x5f9321c42340] 264 - core 163 r3060 5db6aa6 - H.264/MPEG-4 AVC codec - Copyleft 2003-2021 - http://www.videolan.org/x264.html - options: cabac=0 ref=1 deblock=0:0:0 analyse=0:0 me=dia subme=0 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=0 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=6 lookahead_threads=1 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=0 weightp=0 keyint=250 keyint_min=25 scenecut=0 intra_refresh=0 rc=crf mbtree=0 crf=18.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=0
+Output #0, mp4, to 'xi_stream_test.mp4':
+  Metadata:
+    encoder         : Lavf58.76.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1024x352, q=2-31, 100 fps, 12800 tbn
+    Metadata:
+      encoder         : Lavc58.134.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+Frame 30 grab:0.384419ms debayer:2.8152ms enc:0.58171ms.00 bitrate=N/A speed=   0x    
+Frame 60 grab:0.510787ms debayer:3.80202ms enc:0.485159ms
+Frame 90 grab:0.392112ms debayer:2.85559ms enc:0.660239ms
+Frame 120 grab:0.614718ms debayer:2.55987ms enc:0.431143ms9 bitrate=16945.7kbits/s speed=1.98x    
+Frame 150 grab:0.418454ms debayer:2.90218ms enc:0.701742ms
+Frame 180 grab:0.395861ms debayer:2.80464ms enc:0.666145ms
+Frame 210 grab:0.400262ms debayer:2.9442ms enc:0.409413ms
+Frame 240 grab:0.659385ms debayer:4.18805ms enc:0.790951ms0 bitrate=16976.5kbits/s speed=2.09x    
+Frame 270 grab:0.474756ms debayer:2.90569ms enc:0.471305ms
+xiAPI: WorkerThread is down: ret 0
+xiAPI: xiCloseDevice
+xiAPI: DisableSensor
+xiAPI: DisableDevice
+xiAPI: deleting camera context: dwID=28773051, ptr=3e676000 processID=00001328
+frame=  300 fps=197 q=-1.0 Lsize=    6314kB time=00:00:02.99 bitrate=17297.7kbits/s speed=1.97x    
+video:6312kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.033065%
+[libx264 @ 0x5f9321c42340] frame I:2     Avg QP:17.00  size:118556
+[libx264 @ 0x5f9321c42340] frame P:298   Avg QP:22.37  size: 20890
+[libx264 @ 0x5f9321c42340] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x5f9321c42340] mb P  I16..4:  0.1%  0.0%  0.0%  P16..4: 48.2%  0.0%  0.0%  0.0%  0.0%    skip:51.8%
+[libx264 @ 0x5f9321c42340] coded y,uvDC,uvAC intra: 81.1% 61.2% 55.5% inter: 40.0% 29.8% 23.7%
+[libx264 @ 0x5f9321c42340] i16 v,h,dc,p: 38% 22% 26% 13%
+[libx264 @ 0x5f9321c42340] i8c dc,h,v,p: 57% 13% 24%  6%
+[libx264 @ 0x5f9321c42340] kb/s:17233.16
+
+Averages: grab 0.582733ms, debayer 3.33605ms, encode 1.18146ms, total 5.10024ms → 196.069 FPS
+```
