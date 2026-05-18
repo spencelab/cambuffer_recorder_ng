@@ -2,30 +2,38 @@
 <package format="3">
   <name>cambuffer_recorder_ng</name>
   <version>0.0.1</version>
-  <description>ROS2 lifecycle camera buffer recorder with GenTL/FakeCamera backends</description>
+  <description>ROS2 lifecycle camera buffer recorder with optional camera backends, fake camera, rolling raw capture, and service control.</description>
+
   <maintainer email="aspence@temple.edu">Andrew Spence</maintainer>
   <license>BSD-3-Clause</license>
 
+  <!-- Build system -->
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- Service/interface generation -->
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <!-- ROS dependencies -->
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>builtin_interfaces</depend>
   <depend>diagnostic_msgs</depend>
-  <depend>message_generation</depend>
-  <depend>message_runtime</depend>
 
+  <!-- System/library runtime dependencies.
+       CMake still finds FFmpeg/OpenCV via find_package/pkg-config. -->
   <exec_depend>ffmpeg</exec_depend>
+  <exec_depend>libopencv-dev</exec_depend>
   <exec_depend>libavcodec-dev</exec_depend>
   <exec_depend>libavformat-dev</exec_depend>
   <exec_depend>libavutil-dev</exec_depend>
   <exec_depend>libswscale-dev</exec_depend>
-  <exec_depend>libopencv-dev</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
   </export>
 </package>
-

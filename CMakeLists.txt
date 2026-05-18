@@ -15,10 +15,22 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+# =========================
+#  Custom service interfaces
+# =========================
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/ApplySettings.srv"
+  "srv/GetStatus.srv"
+)
+
+ament_export_dependencies(rosidl_default_runtime)
 
 # =========================
 #  FFmpeg via pkg-config
@@ -130,11 +142,14 @@ add_library(${PROJECT_NAME}_lib
   src/CamBufferRecorderNode.cpp
   src/Recorder.cpp
   src/FfmpegWriter.cpp
+
   src/settings/CameraSettings.cpp
   src/settings/SettingsManager.cpp
   src/settings/SettingsSerialization.cpp
-  src/raw/RawRollingWriter.cpp
+
   src/raw/RollingRawRecorder.cpp
+  src/raw/RawRollingWriter.cpp
+
   ${CAMERA_SOURCES}
 )
 
@@ -157,6 +172,7 @@ ament_target_dependencies(${PROJECT_NAME}_lib
   rclcpp_lifecycle
   sensor_msgs
   std_msgs
+  std_srvs
   diagnostic_msgs
   OpenCV
 )
@@ -167,38 +183,89 @@ target_link_libraries(${PROJECT_NAME}_lib
   ${CAMERA_LIBS}
 )
 
+# Link generated service type support into the library.
+# Important because CamBufferRecorderNode.cpp includes generated srv headers.
+rosidl_get_typesupport_target(cpp_typesupport_target
+  ${PROJECT_NAME}
+  "rosidl_typesupport_cpp"
+)
+
+target_link_libraries(${PROJECT_NAME}_lib
+  ${cpp_typesupport_target}
+)
+
 # =========================
-#  Executable
+#  Main node executable
 # =========================
-add_executable(${PROJECT_NAME}
+# Do NOT name this target ${PROJECT_NAME}, because rosidl_generate_interfaces()
+# creates a custom target with that name.
+set(NODE_TARGET ${PROJECT_NAME}_node)
+
+add_executable(${NODE_TARGET}
   src/main.cpp
 )
 
-target_link_libraries(${PROJECT_NAME}
+# Keep user-facing executable command unchanged:
+#   ros2 run cambuffer_recorder_ng cambuffer_recorder_ng
+set_target_properties(${NODE_TARGET}
+  PROPERTIES OUTPUT_NAME ${PROJECT_NAME}
+)
+
+target_link_libraries(${NODE_TARGET}
   ${PROJECT_NAME}_lib
 )
 
-ament_target_dependencies(${PROJECT_NAME}
+ament_target_dependencies(${NODE_TARGET}
   rclcpp
   rclcpp_lifecycle
 )
 
 # =========================
-#  Raw rolling inspection/conversion tools
+#  Raw rolling tools
 # =========================
-add_executable(raw_rolling_info src/tools/raw_rolling_info.cpp)
-target_link_libraries(raw_rolling_info ${PROJECT_NAME}_lib)
-ament_target_dependencies(raw_rolling_info rclcpp OpenCV)
+add_executable(raw_rolling_info
+  src/tools/raw_rolling_info.cpp
+)
 
-add_executable(raw_rolling_to_mp4 src/tools/raw_rolling_to_mp4.cpp)
-target_link_libraries(raw_rolling_to_mp4 ${PROJECT_NAME}_lib)
-ament_target_dependencies(raw_rolling_to_mp4 rclcpp OpenCV)
+target_include_directories(raw_rolling_info
+  PRIVATE
+    include
+)
+
+target_link_libraries(raw_rolling_info
+  ${PROJECT_NAME}_lib
+)
+
+ament_target_dependencies(raw_rolling_info
+  rclcpp
+)
+
+add_executable(raw_rolling_to_mp4
+  src/tools/raw_rolling_to_mp4.cpp
+)
+
+target_include_directories(raw_rolling_to_mp4
+  PRIVATE
+    include
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(raw_rolling_to_mp4
+  ${PROJECT_NAME}_lib
+  PkgConfig::FFMPEG
+  ${OpenCV_LIBS}
+)
+
+ament_target_dependencies(raw_rolling_to_mp4
+  rclcpp
+  OpenCV
+)
 
 # =========================
-#  Install
+#  Installation
 # =========================
 install(TARGETS
-  ${PROJECT_NAME}
+  ${NODE_TARGET}
   ${PROJECT_NAME}_lib
   raw_rolling_info
   raw_rolling_to_mp4
@@ -211,9 +278,17 @@ install(DIRECTORY include/
   DESTINATION include/
 )
 
-install(DIRECTORY launch config msg action
+install(DIRECTORY
+  launch
+  config
+  msg
+  action
+  srv
   DESTINATION share/${PROJECT_NAME}/
   OPTIONAL
 )
 
+# =========================
+#  Package
+# =========================
 ament_package()
