@@ -1,0 +1,24 @@
+# YAML settings document. Accepts the same flat dotted keys used by config files,
+# for example:
+# backend: "ximea"
+# mode: "raw8bayerGBRG_rolling"
+# camera.width: 2048
+# camera.height: 700
+# camera.fps: 100.0
+string settings_yaml
+
+# If true, parsed settings are merged on top of the current requested settings.
+# If false, parsed settings are resolved from backend/mode defaults.
+bool merge_with_current
+
+# If already recording, stop first, apply settings, and optionally restart.
+# If false and currently recording, the request is rejected.
+bool restart_if_active
+
+# Start recording immediately after applying settings.
+bool activate_after_apply
+---
+bool success
+string message
+string requested_settings_yaml
+string effective_settings_yaml

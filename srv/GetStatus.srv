@@ -1,0 +1,14 @@
+---
+bool success
+string state
+bool configured
+bool recording
+string backend
+string mode
+string output_kind
+string run_id
+string output_path
+string metadata_path
+string rolling_path_prefix
+string requested_settings_yaml
+string effective_settings_yaml
