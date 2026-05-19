@@ -26,6 +26,54 @@ Has issues with sizes going into ffmpeg etc might need to be 704 tall multiple o
 
 With `xi_grab**` etc. Binaries. This one for example xi_grab_debayer_ffmpeg_stream.cpp is killer and saves at 250fps into an mp4 at half res that looks good just needs white balance and gamma! Files tiny! decimated!
 
+## Working with hw trigs 5-19-2026
+
+Notes i accidentally put in triggerbox_ros2:
+
+### 20260519 Getting to work with cambuffer_recorder_ng
+
+Using arduino from my dev box with red proto board shield on top with driver chip and switch and one bnc.
+
+It is flaky. With switch in 5V position (towards USB in jack) switch needs jiggling for to work. Too much time in bags.
+
+But it will work and trigger the ximea nicely at 100hz.
+
+To start it and change frame rat:
+```
+ros2 run triggerbox_ros2 triggerbox_host
+ros2 service call /triggerbox_host/set_framerate triggerbox_ros2_interfaces/srv/SetFramerate "{data: 25.0}"
+```
+
+Figured out with
+```
+ros2 service type /triggerbox_host/set_framerate
+ros2 interface show triggerbox_ros2_interfaces/srv/SetFramerate
+```
+
+### Lots of fun profiling on hardware trigger.
+
+Trying to get the thread rt priority:
+```
+spencelab@ros2test:~/ros2_ws$ sudo groupadd -f realtime
+[sudo] password for spencelab: 
+spencelab@ros2test:~/ros2_ws$ sudo usermod -aG realtime $USER
+spencelab@ros2test:~/ros2_ws$ sudo tee /etc/security/limits.d/99-realtime.conf >/dev/null <<'EOF'
+> @realtime   -   rtprio     80
+@realtime   -   memlock    unlimited
+@realtime   -   nice       -10
+EOF
+spencelab@ros2test:~/ros2_ws$ cat /etc/security/limits.d/99-realtime.conf 
+@realtime   -   rtprio     80
+@realtime   -   memlock    unlimited
+@realtime   -   nice       -10
+spencelab@ros2test:~/ros2_ws$ 
+```
+
+You need to reboot, but **THAT WORKS** and on reboot, running in terminal with no browser open, it dumps to disk with 16 frame ximea buffer and we had ZERO frame drops at the camera for 30 seconds or a minute or so. GREAT! And even cooler you can see the buffer working. camera triggers are on sync but a lag in disk writing follow by catching up!
+
+<img width="3540" height="678" alt="image" src="https://github.com/user-attachments/assets/08c733a6-0f8d-4513-a9e2-6c6894db5a2a" />
+
+See it should be around 10ms, it lags off to 47ms and then a series of 1ms writes catch up!
 
 
 ## Parameters
