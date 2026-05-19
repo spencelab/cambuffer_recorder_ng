@@ -1,0 +1,26 @@
+cambuffer_recorder_ng:
+  ros__parameters:
+    backend: "fake"
+    mode: "raw8bayerGBRG_rolling"
+
+    camera.width: 2048
+    camera.height: 700
+    camera.fps: 100.0
+    camera.pixel_format: "bayer_gbrg8"
+    camera.bayer_pattern: "GBRG"
+
+    # "false" means RollingRawRecorder is the only software FPS limiter.
+    # Set to "true" to make fakecam emulate a camera that blocks at camera.fps.
+    fake.realtime_pacing: "false"
+
+    output.dir: "/tmp"
+    output.prefix: "fake_raw8bayerGBRG_rolling"
+
+    pipeline.white_balance.enabled: true
+    pipeline.white_balance.r_gain: 1.23
+    pipeline.white_balance.g_gain: 1.00
+    pipeline.white_balance.b_gain: 1.60
+
+    rolling.max_file_gib: 2.0
+    rolling.max_frames: 0
+    rolling.pack_rows: true

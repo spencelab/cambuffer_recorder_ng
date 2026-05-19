@@ -8,6 +8,8 @@ namespace cambuffer_recorder_ng
 static constexpr uint32_t CBRRAW_FILE_MAGIC  = 0x52524243; // 'CBRR' little-endian
 static constexpr uint32_t CBRRAW_FRAME_MAGIC = 0x46524243; // 'CBRF' little-endian
 static constexpr uint16_t CBRRAW_VERSION = 1;
+// Version 1 frame header reserved1 is now used as camera_frame_number when available.
+// Old files have this field as zero; layout remains backwards-compatible.
 
 enum class RawPixelFormat : uint32_t
 {
@@ -48,7 +50,7 @@ struct RawRollingFrameHeader
     uint32_t source_stride_bytes;
     uint32_t payload_bytes;
     uint32_t pixel_format;
-    uint32_t reserved1;
+    uint32_t camera_frame_number;  // XIMEA XI_IMG.nframe when available; 0 means unknown
 };
 #pragma pack(pop)
 

@@ -160,6 +160,12 @@ bool XiCamera::grab(uint8_t*& data, size_t& size, uint64_t& ts,
     // Camera timestamp when available. RollingRawRecorder stores PC UTC independently.
     ts = static_cast<uint64_t>(image_.tsSec) * 1'000'000'000ULL +
          static_cast<uint64_t>(image_.tsUSec) * 1000ULL;
+
+    // XIMEA frame sequence number. This is invaluable for distinguishing true
+    // camera/API skips from host-side scheduling jitter. Stored in the raw
+    // rolling frame header as camera_frame_number.
+    last_frame_number_ = static_cast<uint64_t>(image_.nframe);
+
     return true;
 }
 

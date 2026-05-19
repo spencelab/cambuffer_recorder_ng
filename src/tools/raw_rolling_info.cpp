@@ -53,6 +53,8 @@ int main(int argc, char** argv)
     uint64_t frame_count = 0;
     uint64_t first_utc = 0, last_utc = 0;
     uint64_t first_idx = 0, last_idx = 0;
+    uint64_t first_camera_frame_number = 0, last_camera_frame_number = 0;
+    uint64_t camera_frame_number_gaps = 0, total_camera_frame_number_gap = 0;
 
     while (true) {
         RawRollingFrameHeader rh{};
@@ -69,9 +71,16 @@ int main(int argc, char** argv)
         if (frame_count == 0) {
             first_utc = rh.pc_utc_ns;
             first_idx = rh.frame_index;
+            first_camera_frame_number = rh.camera_frame_number;
+        } else if (rh.camera_frame_number > 0 && last_camera_frame_number > 0) {
+            if (rh.camera_frame_number > last_camera_frame_number + 1) {
+                ++camera_frame_number_gaps;
+                total_camera_frame_number_gap += rh.camera_frame_number - last_camera_frame_number - 1;
+            }
         }
         last_utc = rh.pc_utc_ns;
         last_idx = rh.frame_index;
+        last_camera_frame_number = rh.camera_frame_number;
         ++frame_count;
         if (fseek(fp, static_cast<long>(rh.payload_bytes), SEEK_CUR) != 0) {
             std::cerr << "Could not seek past payload at frame " << frame_count << "\n";
@@ -85,6 +94,10 @@ int main(int argc, char** argv)
         std::cout << "last_frame_index: " << last_idx << "\n";
         std::cout << "first_pc_utc_ns: " << first_utc << "\n";
         std::cout << "last_pc_utc_ns: " << last_utc << "\n";
+        std::cout << "first_camera_frame_number: " << first_camera_frame_number << "\n";
+        std::cout << "last_camera_frame_number: " << last_camera_frame_number << "\n";
+        std::cout << "camera_frame_number_gaps: " << camera_frame_number_gaps << "\n";
+        std::cout << "total_camera_frame_number_gap: " << total_camera_frame_number_gap << "\n";
         if (last_utc > first_utc && frame_count > 1) {
             const double elapsed_s = static_cast<double>(last_utc - first_utc) / 1e9;
             std::cout << "duration_s: " << elapsed_s << "\n";

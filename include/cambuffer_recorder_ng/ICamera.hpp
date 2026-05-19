@@ -25,6 +25,10 @@ public:
     virtual bool grab(uint8_t*& data, size_t& size, uint64_t& ts,
                       int& width, int& height, int& stride, int timeout_ms = 100) = 0;
 
+    // Optional backend-provided frame/sequence number for the most recent successful grab().
+    // XIMEA provides this as XI_IMG.nframe. Return 0 when unavailable.
+    virtual uint64_t lastCameraFrameNumber() const { return 0; }
+
 protected:
     CameraSettings requested_settings_;
     CameraSettings effective_settings_;

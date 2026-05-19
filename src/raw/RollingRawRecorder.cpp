@@ -178,6 +178,11 @@ void RollingRawRecorder::loop()
         } catch (...) {
             ok = false;
         }
+        // Capture the host/PC UTC timestamp immediately after grab() returns.
+        // This keeps pc_utc_ns as close as practical to xiGetImage() return time,
+        // before row packing, validation, file rollover, or disk writes can add jitter.
+        const uint64_t utc_ns_after_grab = ok ? systemUtcNowNs() : 0ULL;
+
         if (!ok || !data || w <= 0 || h <= 0) {
             if (hardware_trigger_) {
                 const auto now = std::chrono::steady_clock::now();
@@ -217,7 +222,7 @@ void RollingRawRecorder::loop()
             break;
         }
 
-        const uint64_t utc_ns = systemUtcNowNs();
+        const uint64_t utc_ns = utc_ns_after_grab;
         const uint8_t* payload = data;
         uint32_t payload_bytes = static_cast<uint32_t>(w * h);
 
@@ -229,7 +234,9 @@ void RollingRawRecorder::loop()
             payload_bytes = static_cast<uint32_t>(std::min<size_t>(size, static_cast<size_t>(w) * static_cast<size_t>(h)));
         }
 
-        if (!writer_.writeFrame(frames_written_, utc_ns, camera_ts, payload, payload_bytes)) {
+        const uint64_t camera_frame_number = camera_->lastCameraFrameNumber();
+
+        if (!writer_.writeFrame(frames_written_, utc_ns, camera_ts, camera_frame_number, payload, payload_bytes)) {
             std::cerr << "RollingRawRecorder: writeFrame failed\n";
             if (event_callback_) event_callback_("rolling_write_failed", false, "Rolling raw writeFrame failed.");
             running_ = false;
