@@ -102,6 +102,11 @@ void SettingsManager::declareParameters()
     declare_double("camera.fps", 0.0);
     declare_double("camera.exposure_us", 0.0);
     declare_double("camera.gain_db", 0.0);
+    declare_bool("camera.hardware_trigger", false);
+    declare_double("camera.expected_hardware_fps", 0.0);
+    declare_int64("camera.grab_timeout_ms", 0);
+    declare_double("camera.timeout_warn_interval_s", 0.0);
+    declare_double("camera.fps_report_interval_s", 0.0);
     declare_string("camera.pixel_format", "");
     declare_string("camera.bayer_pattern", "");
 
@@ -111,6 +116,14 @@ void SettingsManager::declareParameters()
 
     declare_int("device_index", 0);
     declare_string("cti_path", "/opt/XIMEA/lib/ximea.gentl2.cti");
+    // XiAPI usually uses 1 for the first physical GPI. XiCamTool may label this as GPI 0.
+    // Override ximea.gpi_selector if your camera/API reports a different selector.
+    declare_int("ximea.gpi_selector", 1);
+    declare_string("ximea.trigger_edge", "rising");
+    // xiAPI internal frame-buffer queue. Default xiAPI queue is small; 16 gives
+    // roughly 150 ms of cushion at 100 Hz for externally triggered capture.
+    // Set <=0 to skip setting it explicitly.
+    declare_int("ximea.buffers_queue_size", 16);
 
     declare_string("pipeline.debayer.enabled", "false");
     declare_double("pipeline.resize.scale", 1.0);
@@ -145,6 +158,11 @@ CameraSettings SettingsManager::defaultsForBackend(const std::string& backend_na
     s.set("camera.fps", 30.0);
     s.set("camera.exposure_us", 5000.0);
     s.set("camera.gain_db", 0.0);
+    s.set("camera.hardware_trigger", false);
+    s.set("camera.expected_hardware_fps", 0.0);
+    s.set("camera.grab_timeout_ms", int64_t{1000});
+    s.set("camera.timeout_warn_interval_s", 5.0);
+    s.set("camera.fps_report_interval_s", 5.0);
     s.set("camera.pixel_format", std::string{"rgb24"});
     s.set("camera.bayer_pattern", std::string{""});
 
@@ -162,6 +180,9 @@ CameraSettings SettingsManager::defaultsForBackend(const std::string& backend_na
         s.set("camera.exposure_us", 2000.0);
         s.set("camera.pixel_format", std::string{"bayer_gbrg8"});
         s.set("camera.bayer_pattern", std::string{"GBRG"});
+        s.set("ximea.gpi_selector", int64_t{1});
+        s.set("ximea.trigger_edge", std::string{"rising"});
+        s.set("ximea.buffers_queue_size", int64_t{16});
     } else if (backend_name == "gentl") {
         s.set("camera.width", int64_t{1280});
         s.set("camera.height", int64_t{1024});
@@ -187,6 +208,11 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("camera.height", int64_t{700});
         s.set("camera.fps", 5.0);
         s.set("camera.exposure_us", 2000.0);
+        s.set("camera.hardware_trigger", false);
+        s.set("camera.expected_hardware_fps", 5.0);
+        s.set("camera.grab_timeout_ms", int64_t{1000});
+        s.set("camera.timeout_warn_interval_s", 5.0);
+        s.set("camera.fps_report_interval_s", 5.0);
         // Mode chooses the acquisition format; cameras simply obey camera.*.
         // For the rolling raw mode, fakecam and XIMEA should both produce one-byte
         // GBRG Bayer frames.
@@ -203,6 +229,7 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("rolling.max_file_bytes", int64_t{0});
         s.set("rolling.max_frames", int64_t{0});
         s.set("rolling.pack_rows", true);
+        s.set("ximea.buffers_queue_size", int64_t{16});
         // RollingRawRecorder already does software pacing. Leave fakecam unpaced
         // by default to avoid two 100 Hz limiters becoming an accidental 50 Hz.
         s.set("fake.realtime_pacing", false);
@@ -253,6 +280,13 @@ CameraSettings SettingsManager::readRosOverrides()
     set_double_if_positive("camera.exposure_us", "camera.exposure_us");
     // Gain can legitimately be zero, but zero is also our default/no-op. Set it if YAML uses camera.gain_db.
     s.set("camera.gain_db", node_.get_parameter("camera.gain_db").as_double());
+    if (node_.get_parameter("camera.hardware_trigger").as_bool()) {
+        s.set("camera.hardware_trigger", true);
+    }
+    set_double_if_positive("camera.expected_hardware_fps", "camera.expected_hardware_fps");
+    set_int_if_positive("camera.grab_timeout_ms", "camera.grab_timeout_ms");
+    set_double_if_positive("camera.timeout_warn_interval_s", "camera.timeout_warn_interval_s");
+    set_double_if_positive("camera.fps_report_interval_s", "camera.fps_report_interval_s");
     set_string_if_nonempty("camera.pixel_format", "camera.pixel_format");
     set_string_if_nonempty("camera.bayer_pattern", "camera.bayer_pattern");
 
@@ -264,6 +298,9 @@ CameraSettings SettingsManager::readRosOverrides()
 
     s.set("device_index", int64_t{node_.get_parameter("device_index").as_int()});
     set_string_if_nonempty("cti_path", "cti_path");
+    s.set("ximea.gpi_selector", int64_t{node_.get_parameter("ximea.gpi_selector").as_int()});
+    set_string_if_nonempty("ximea.trigger_edge", "ximea.trigger_edge");
+    set_int_if_positive("ximea.buffers_queue_size", "ximea.buffers_queue_size");
 
     set_string_if_nonempty("output.dir", "output.dir");
     set_string_if_nonempty("output.prefix", "output.prefix");

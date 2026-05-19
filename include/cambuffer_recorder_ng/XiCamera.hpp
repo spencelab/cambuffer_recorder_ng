@@ -26,6 +26,7 @@ public:
     void close() override;
     bool grab(uint8_t*& data, size_t& size, uint64_t& ts,
               int& width, int& height, int& stride, int timeout_ms = 100) override;
+    uint64_t lastCameraFrameNumber() const override { return last_frame_number_; }
 
 private:
     HANDLE handle_{nullptr};
@@ -36,7 +37,12 @@ private:
     int image_data_format_{0};
     double exposure_us_{2000.0};
     double gain_db_{0.0};
+    bool hardware_trigger_{false};
+    int gpi_selector_{1};
+    std::string trigger_edge_{"rising"};
+    int buffers_queue_size_{16};
     bool running_{false};
+    uint64_t last_frame_number_{0};
 };
 
 } // namespace cambuffer_recorder_ng

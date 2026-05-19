@@ -50,6 +50,11 @@ bool RollingRawRecorder::start(std::shared_ptr<ICamera> camera,
     camera_ = std::move(camera);
     settings_ = settings;
     target_fps_ = settings_.getOr<double>("camera.fps", 5.0);
+    hardware_trigger_ = settings_.getOr<bool>("camera.hardware_trigger", false);
+    expected_hardware_fps_ = settings_.getOr<double>("camera.expected_hardware_fps", target_fps_);
+    grab_timeout_ms_ = static_cast<int>(settings_.getOr<int64_t>("camera.grab_timeout_ms", int64_t{1000}));
+    timeout_warn_interval_s_ = settings_.getOr<double>("camera.timeout_warn_interval_s", 5.0);
+    fps_report_interval_s_ = settings_.getOr<double>("camera.fps_report_interval_s", 5.0);
     max_frames_ = static_cast<uint64_t>(settings_.getOr<int64_t>("rolling.max_frames", int64_t{0}));
     pack_rows_ = settings_.getOr<bool>("rolling.pack_rows", true);
 
@@ -136,11 +141,21 @@ void RollingRawRecorder::loop()
     uint64_t camera_ts = 0;
     int w = 0, h = 0, stride = 0;
 
-    const auto frame_period = target_fps_ > 0.0
+    // In software-timed/free-run mode the recorder owns the pacing.
+    // In hardware-trigger mode the camera/triggerbox owns the pacing, and grab()
+    // blocks up to camera.grab_timeout_ms while we wait for the next trigger.
+    const auto frame_period = (!hardware_trigger_ && target_fps_ > 0.0)
         ? std::chrono::duration_cast<std::chrono::steady_clock::duration>(
               std::chrono::duration<double>(1.0 / target_fps_))
         : std::chrono::steady_clock::duration::zero();
     auto next_frame_time = std::chrono::steady_clock::now();
+
+    auto last_timeout_warn = std::chrono::steady_clock::now() -
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(timeout_warn_interval_s_));
+    auto last_fps_report = std::chrono::steady_clock::now();
+    uint64_t frames_at_last_report = frames_written_.load();
+    bool waiting_reported = false;
 
     while (running_) {
         if (max_frames_ > 0 && frames_written_ >= max_frames_) {
@@ -159,11 +174,38 @@ void RollingRawRecorder::loop()
 
         bool ok = false;
         try {
-            ok = camera_->grab(data, size, camera_ts, w, h, stride, 1000);
+            ok = camera_->grab(data, size, camera_ts, w, h, stride, grab_timeout_ms_);
         } catch (...) {
             ok = false;
         }
-        if (!ok || !data || w <= 0 || h <= 0) continue;
+        // Capture the host/PC UTC timestamp immediately after grab() returns.
+        // This keeps pc_utc_ns as close as practical to xiGetImage() return time,
+        // before row packing, validation, file rollover, or disk writes can add jitter.
+        const uint64_t utc_ns_after_grab = ok ? systemUtcNowNs() : 0ULL;
+
+        if (!ok || !data || w <= 0 || h <= 0) {
+            if (hardware_trigger_) {
+                const auto now = std::chrono::steady_clock::now();
+                if (now - last_timeout_warn >= std::chrono::duration<double>(timeout_warn_interval_s_)) {
+                    last_timeout_warn = now;
+                    const std::string message =
+                        "No triggered frames received within " + std::to_string(grab_timeout_ms_) +
+                        " ms; expecting approximately " + std::to_string(expected_hardware_fps_) +
+                        " Hz frames from hardware trigger. Check triggerbox, cable, GPI selector, and XIMEA trigger mode.";
+                    std::cerr << "RollingRawRecorder: " << message << "\n";
+                    if (event_callback_) event_callback_("hardware_trigger_timeout", false, message);
+                    waiting_reported = true;
+                }
+            }
+            continue;
+        }
+
+        if (hardware_trigger_ && waiting_reported) {
+            waiting_reported = false;
+            const std::string message = "Triggered frames resumed.";
+            std::cerr << "RollingRawRecorder: " << message << "\n";
+            if (event_callback_) event_callback_("hardware_trigger_resumed", true, message);
+        }
 
         if (stride < w) {
             std::cerr << "RollingRawRecorder: grab returned invalid stride " << stride
@@ -180,7 +222,7 @@ void RollingRawRecorder::loop()
             break;
         }
 
-        const uint64_t utc_ns = systemUtcNowNs();
+        const uint64_t utc_ns = utc_ns_after_grab;
         const uint8_t* payload = data;
         uint32_t payload_bytes = static_cast<uint32_t>(w * h);
 
@@ -192,12 +234,34 @@ void RollingRawRecorder::loop()
             payload_bytes = static_cast<uint32_t>(std::min<size_t>(size, static_cast<size_t>(w) * static_cast<size_t>(h)));
         }
 
-        if (!writer_.writeFrame(frames_written_, utc_ns, camera_ts, payload, payload_bytes)) {
+        const uint64_t camera_frame_number = camera_->lastCameraFrameNumber();
+
+        if (!writer_.writeFrame(frames_written_, utc_ns, camera_ts, camera_frame_number, payload, payload_bytes)) {
             std::cerr << "RollingRawRecorder: writeFrame failed\n";
+            if (event_callback_) event_callback_("rolling_write_failed", false, "Rolling raw writeFrame failed.");
             running_ = false;
             break;
         }
         ++frames_written_;
+
+        if (hardware_trigger_) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last_fps_report >= std::chrono::duration<double>(fps_report_interval_s_)) {
+                const uint64_t current_frames = frames_written_.load();
+                const double elapsed = std::chrono::duration<double>(now - last_fps_report).count();
+                const double measured_fps = elapsed > 0.0
+                    ? static_cast<double>(current_frames - frames_at_last_report) / elapsed
+                    : 0.0;
+                last_fps_report = now;
+                frames_at_last_report = current_frames;
+                const std::string message =
+                    "Hardware-triggered acquisition rate approximately " +
+                    std::to_string(measured_fps) + " Hz; expected " +
+                    std::to_string(expected_hardware_fps_) + " Hz.";
+                std::cerr << "RollingRawRecorder: " << message << "\n";
+                if (event_callback_) event_callback_("hardware_trigger_rate", true, message);
+            }
+        }
     }
 }
 

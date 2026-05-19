@@ -31,6 +31,7 @@ public:
     bool writeFrame(uint64_t frame_index,
                     uint64_t pc_utc_ns,
                     uint64_t camera_timestamp_ns,
+                    uint64_t camera_frame_number,
                     const uint8_t* data,
                     uint32_t payload_bytes);
     void close();

@@ -5,6 +5,7 @@
 #include "cambuffer_recorder_ng/settings/CameraSettings.hpp"
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
@@ -23,6 +24,9 @@ public:
                const CameraSettings& settings,
                const std::string& path_prefix);
     void stop();
+
+    using EventCallback = std::function<void(const std::string& event_type, bool success, const std::string& message)>;
+    void setEventCallback(EventCallback callback) { event_callback_ = std::move(callback); }
 
     uint64_t framesWritten() const { return frames_written_; }
     const std::vector<std::string>& filesWritten() const { return writer_.filesWritten(); }
@@ -46,6 +50,12 @@ private:
     double target_fps_{5.0};
     uint64_t max_frames_{0};
     bool pack_rows_{true};
+    bool hardware_trigger_{false};
+    double expected_hardware_fps_{0.0};
+    int grab_timeout_ms_{1000};
+    double timeout_warn_interval_s_{5.0};
+    double fps_report_interval_s_{5.0};
+    EventCallback event_callback_;
 };
 
 }  // namespace cambuffer_recorder_ng

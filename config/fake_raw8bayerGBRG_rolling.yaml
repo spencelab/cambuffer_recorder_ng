@@ -1,21 +1,21 @@
 cambuffer_recorder_ng:
   ros__parameters:
-    backend: "xiapi"
+    backend: "fake"
     mode: "raw8bayerGBRG_rolling"
 
     camera.width: 2048
     camera.height: 700
-    camera.fps: 5.0
-    camera.exposure_us: 2000.0
-    camera.gain_db: 0.0
+    camera.fps: 100.0
     camera.pixel_format: "bayer_gbrg8"
     camera.bayer_pattern: "GBRG"
 
-    output.dir: "/tmp"
-    output.prefix: "ximea_raw8bayerGBRG_rolling"
+    # "false" means RollingRawRecorder is the only software FPS limiter.
+    # Set to "true" to make fakecam emulate a camera that blocks at camera.fps.
+    fake.realtime_pacing: "false"
 
-    # Preview/conversion-only white balance gains. Recording stays raw8 Bayer;
-    # raw_rolling_to_mp4 reads these from the metadata sidecar when making MP4 previews.
+    output.dir: "/tmp"
+    output.prefix: "fake_raw8bayerGBRG_rolling"
+
     pipeline.white_balance.enabled: true
     pipeline.white_balance.r_gain: 1.23
     pipeline.white_balance.g_gain: 1.00

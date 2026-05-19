@@ -4,12 +4,17 @@
 
 #include <chrono>
 #include <cstring>
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 
 #ifndef XI_PRM_PADDING_X
 #define XI_PRM_PADDING_X "padding_x"
+#endif
+
+#ifndef XI_PRM_BUFFERS_QUEUE_SIZE
+#define XI_PRM_BUFFERS_QUEUE_SIZE "buffers_queue_size"
 #endif
 
 namespace cambuffer_recorder_ng {
@@ -29,6 +34,12 @@ void XiCamera::configure(const CameraSettings& requested_settings)
     height_ = static_cast<int>(requested_settings.getOr<int64_t>("camera.height", int64_t{700}));
     exposure_us_ = requested_settings.getOr<double>("camera.exposure_us", 2000.0);
     gain_db_ = requested_settings.getOr<double>("camera.gain_db", 0.0);
+    hardware_trigger_ = requested_settings.getOr<bool>("camera.hardware_trigger", false);
+    gpi_selector_ = static_cast<int>(requested_settings.getOr<int64_t>("ximea.gpi_selector", int64_t{1}));
+    trigger_edge_ = requested_settings.getOr<std::string>("ximea.trigger_edge", "rising");
+    buffers_queue_size_ = static_cast<int>(requested_settings.getOr<int64_t>("ximea.buffers_queue_size", int64_t{16}));
+    std::transform(trigger_edge_.begin(), trigger_edge_.end(), trigger_edge_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     effective_settings_ = requested_settings_;
     effective_settings_.set("backend", std::string{"xiapi"});
@@ -42,6 +53,21 @@ void XiCamera::open(int device_index)
     std::memset(&image_, 0, sizeof(image_));
     image_.size = sizeof(XI_IMG);
 
+    // Increase xiAPI's internal image queue before acquisition starts. The default
+    // queue is small, which can skip frames if the application is briefly delayed.
+    // This is especially useful for externally triggered 100 Hz rolling capture.
+    if (buffers_queue_size_ > 0) {
+        XI_RETURN qstat = xiSetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, buffers_queue_size_);
+        if (qstat != XI_OK) {
+            std::cout << "[xiapi] warning: could not set buffers_queue_size="
+                      << buffers_queue_size_ << " (xiAPI status " << qstat << ")"
+                      << std::endl;
+        } else {
+            std::cout << "[xiapi] buffers_queue_size requested: "
+                      << buffers_queue_size_ << std::endl;
+        }
+    }
+
     const std::string pixel_format = requested_settings_.getOr<std::string>("camera.pixel_format", "bayer_gbrg8");
     if (pixel_format == "raw8" || pixel_format == "XI_RAW8" || pixel_format == "bayer8" ||
         pixel_format == "bayer_gbrg8" || pixel_format == "raw8_bayer_gbrg") {
@@ -53,9 +79,36 @@ void XiCamera::open(int device_index)
     xiCheck(xiSetParamInt(handle_, XI_PRM_EXPOSURE, static_cast<int>(exposure_us_)), "xiSetParamInt EXPOSURE");
     xiSetParamFloat(handle_, XI_PRM_GAIN, static_cast<float>(gain_db_));
 
+    if (hardware_trigger_) {
+        const int trigger_source =
+            (trigger_edge_ == "falling" || trigger_edge_ == "edge_falling")
+                ? XI_TRG_EDGE_FALLING
+                : XI_TRG_EDGE_RISING;
+
+        xiCheck(xiSetParamInt(handle_, XI_PRM_TRG_SELECTOR, XI_TRG_SEL_FRAME_START),
+                "xiSetParamInt TRG_SELECTOR FRAME_START");
+        xiCheck(xiSetParamInt(handle_, XI_PRM_GPI_SELECTOR, gpi_selector_),
+                "xiSetParamInt GPI_SELECTOR");
+        xiCheck(xiSetParamInt(handle_, XI_PRM_GPI_MODE, XI_GPI_TRIGGER),
+                "xiSetParamInt GPI_MODE TRIGGER");
+        xiCheck(xiSetParamInt(handle_, XI_PRM_TRG_SOURCE, trigger_source),
+                "xiSetParamInt TRG_SOURCE external edge");
+
+        std::cout << "[xiapi] hardware trigger enabled: gpi_selector=" << gpi_selector_
+                  << ", edge=" << trigger_edge_ << std::endl;
+    } else {
+        // Explicitly leave the camera in free-run mode when hardware triggering is disabled.
+        // Some cameras retain trigger settings across sessions/context unless reset.
+        xiSetParamInt(handle_, XI_PRM_TRG_SOURCE, XI_TRG_OFF);
+    }
+
     xiGetParamInt(handle_, XI_PRM_WIDTH, &width_);
     xiGetParamInt(handle_, XI_PRM_HEIGHT, &height_);
     xiGetParamInt(handle_, XI_PRM_IMAGE_DATA_FORMAT, &image_data_format_);
+    int actual_buffers_queue_size = buffers_queue_size_;
+    if (xiGetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, &actual_buffers_queue_size) == XI_OK) {
+        buffers_queue_size_ = actual_buffers_queue_size;
+    }
     if (xiGetParamInt(handle_, XI_PRM_PADDING_X, &padding_x_) != XI_OK) padding_x_ = 0;
     stride_bytes_ = width_ + padding_x_;
 
@@ -70,6 +123,15 @@ void XiCamera::open(int device_index)
     effective_settings_.set("camera.height", int64_t{height_});
     effective_settings_.set("camera.exposure_us", exposure_us_);
     effective_settings_.set("camera.gain_db", gain_db_);
+    effective_settings_.set("camera.hardware_trigger", hardware_trigger_);
+    effective_settings_.set("ximea.gpi_selector", int64_t{gpi_selector_});
+    effective_settings_.set("ximea.trigger_edge", trigger_edge_);
+    effective_settings_.set("ximea.buffers_queue_size", int64_t{buffers_queue_size_});
+    effective_settings_.set("camera.expected_hardware_fps",
+                            requested_settings_.getOr<double>("camera.expected_hardware_fps",
+                                                              requested_settings_.getOr<double>("camera.fps", 0.0)));
+    effective_settings_.set("camera.grab_timeout_ms",
+                            int64_t{requested_settings_.getOr<int64_t>("camera.grab_timeout_ms", int64_t{1000})});
     effective_settings_.set("camera.pixel_format", requested_settings_.getOr<std::string>("camera.pixel_format", "bayer_gbrg8"));
     effective_settings_.set("camera.bayer_pattern", requested_settings_.getOr<std::string>("camera.bayer_pattern", "GBRG"));
     effective_settings_.set("camera.bytes_per_pixel", int64_t{1});
@@ -106,7 +168,9 @@ bool XiCamera::grab(uint8_t*& data, size_t& size, uint64_t& ts,
     if (!running_) return false;
 
     XI_RETURN stat = xiGetImage(handle_, timeout_ms, &image_);
-    if (stat != XI_OK || image_.bp == nullptr) return false;
+    if (stat != XI_OK || image_.bp == nullptr) {
+        return false;
+    }
 
     const int img_width = static_cast<int>(image_.width);
     const int img_height = static_cast<int>(image_.height);
@@ -121,6 +185,12 @@ bool XiCamera::grab(uint8_t*& data, size_t& size, uint64_t& ts,
     // Camera timestamp when available. RollingRawRecorder stores PC UTC independently.
     ts = static_cast<uint64_t>(image_.tsSec) * 1'000'000'000ULL +
          static_cast<uint64_t>(image_.tsUSec) * 1000ULL;
+
+    // XIMEA frame sequence number. This is invaluable for distinguishing true
+    // camera/API skips from host-side scheduling jitter. Stored in the raw
+    // rolling frame header as camera_frame_number.
+    last_frame_number_ = static_cast<uint64_t>(image_.nframe);
+
     return true;
 }
 

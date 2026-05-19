@@ -87,6 +87,7 @@ bool RawRollingWriter::maybeRoll(uint64_t next_record_bytes)
 bool RawRollingWriter::writeFrame(uint64_t frame_index,
                                   uint64_t pc_utc_ns,
                                   uint64_t camera_timestamp_ns,
+                                  uint64_t camera_frame_number,
                                   const uint8_t* data,
                                   uint32_t payload_bytes)
 {
@@ -103,6 +104,7 @@ bool RawRollingWriter::writeFrame(uint64_t frame_index,
     fh.frame_index = frame_index;
     fh.pc_utc_ns = pc_utc_ns;
     fh.camera_timestamp_ns = camera_timestamp_ns;
+    fh.camera_frame_number = static_cast<uint32_t>(camera_frame_number);
     fh.width = config_.width;
     fh.height = config_.height;
     fh.source_stride_bytes = config_.source_stride_bytes;
