@@ -13,6 +13,10 @@
 #define XI_PRM_PADDING_X "padding_x"
 #endif
 
+#ifndef XI_PRM_BUFFERS_QUEUE_SIZE
+#define XI_PRM_BUFFERS_QUEUE_SIZE "buffers_queue_size"
+#endif
+
 namespace cambuffer_recorder_ng {
 
 static void xiCheck(XI_RETURN stat, const std::string& what)
@@ -33,6 +37,7 @@ void XiCamera::configure(const CameraSettings& requested_settings)
     hardware_trigger_ = requested_settings.getOr<bool>("camera.hardware_trigger", false);
     gpi_selector_ = static_cast<int>(requested_settings.getOr<int64_t>("ximea.gpi_selector", int64_t{1}));
     trigger_edge_ = requested_settings.getOr<std::string>("ximea.trigger_edge", "rising");
+    buffers_queue_size_ = static_cast<int>(requested_settings.getOr<int64_t>("ximea.buffers_queue_size", int64_t{16}));
     std::transform(trigger_edge_.begin(), trigger_edge_.end(), trigger_edge_.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
@@ -47,6 +52,21 @@ void XiCamera::open(int device_index)
 
     std::memset(&image_, 0, sizeof(image_));
     image_.size = sizeof(XI_IMG);
+
+    // Increase xiAPI's internal image queue before acquisition starts. The default
+    // queue is small, which can skip frames if the application is briefly delayed.
+    // This is especially useful for externally triggered 100 Hz rolling capture.
+    if (buffers_queue_size_ > 0) {
+        XI_RETURN qstat = xiSetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, buffers_queue_size_);
+        if (qstat != XI_OK) {
+            std::cout << "[xiapi] warning: could not set buffers_queue_size="
+                      << buffers_queue_size_ << " (xiAPI status " << qstat << ")"
+                      << std::endl;
+        } else {
+            std::cout << "[xiapi] buffers_queue_size requested: "
+                      << buffers_queue_size_ << std::endl;
+        }
+    }
 
     const std::string pixel_format = requested_settings_.getOr<std::string>("camera.pixel_format", "bayer_gbrg8");
     if (pixel_format == "raw8" || pixel_format == "XI_RAW8" || pixel_format == "bayer8" ||
@@ -85,6 +105,10 @@ void XiCamera::open(int device_index)
     xiGetParamInt(handle_, XI_PRM_WIDTH, &width_);
     xiGetParamInt(handle_, XI_PRM_HEIGHT, &height_);
     xiGetParamInt(handle_, XI_PRM_IMAGE_DATA_FORMAT, &image_data_format_);
+    int actual_buffers_queue_size = buffers_queue_size_;
+    if (xiGetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, &actual_buffers_queue_size) == XI_OK) {
+        buffers_queue_size_ = actual_buffers_queue_size;
+    }
     if (xiGetParamInt(handle_, XI_PRM_PADDING_X, &padding_x_) != XI_OK) padding_x_ = 0;
     stride_bytes_ = width_ + padding_x_;
 
@@ -102,6 +126,7 @@ void XiCamera::open(int device_index)
     effective_settings_.set("camera.hardware_trigger", hardware_trigger_);
     effective_settings_.set("ximea.gpi_selector", int64_t{gpi_selector_});
     effective_settings_.set("ximea.trigger_edge", trigger_edge_);
+    effective_settings_.set("ximea.buffers_queue_size", int64_t{buffers_queue_size_});
     effective_settings_.set("camera.expected_hardware_fps",
                             requested_settings_.getOr<double>("camera.expected_hardware_fps",
                                                               requested_settings_.getOr<double>("camera.fps", 0.0)));

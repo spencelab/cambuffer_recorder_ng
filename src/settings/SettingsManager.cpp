@@ -120,6 +120,10 @@ void SettingsManager::declareParameters()
     // Override ximea.gpi_selector if your camera/API reports a different selector.
     declare_int("ximea.gpi_selector", 1);
     declare_string("ximea.trigger_edge", "rising");
+    // xiAPI internal frame-buffer queue. Default xiAPI queue is small; 16 gives
+    // roughly 150 ms of cushion at 100 Hz for externally triggered capture.
+    // Set <=0 to skip setting it explicitly.
+    declare_int("ximea.buffers_queue_size", 16);
 
     declare_string("pipeline.debayer.enabled", "false");
     declare_double("pipeline.resize.scale", 1.0);
@@ -178,6 +182,7 @@ CameraSettings SettingsManager::defaultsForBackend(const std::string& backend_na
         s.set("camera.bayer_pattern", std::string{"GBRG"});
         s.set("ximea.gpi_selector", int64_t{1});
         s.set("ximea.trigger_edge", std::string{"rising"});
+        s.set("ximea.buffers_queue_size", int64_t{16});
     } else if (backend_name == "gentl") {
         s.set("camera.width", int64_t{1280});
         s.set("camera.height", int64_t{1024});
@@ -224,6 +229,7 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("rolling.max_file_bytes", int64_t{0});
         s.set("rolling.max_frames", int64_t{0});
         s.set("rolling.pack_rows", true);
+        s.set("ximea.buffers_queue_size", int64_t{16});
         // RollingRawRecorder already does software pacing. Leave fakecam unpaced
         // by default to avoid two 100 Hz limiters becoming an accidental 50 Hz.
         s.set("fake.realtime_pacing", false);
@@ -294,6 +300,7 @@ CameraSettings SettingsManager::readRosOverrides()
     set_string_if_nonempty("cti_path", "cti_path");
     s.set("ximea.gpi_selector", int64_t{node_.get_parameter("ximea.gpi_selector").as_int()});
     set_string_if_nonempty("ximea.trigger_edge", "ximea.trigger_edge");
+    set_int_if_positive("ximea.buffers_queue_size", "ximea.buffers_queue_size");
 
     set_string_if_nonempty("output.dir", "output.dir");
     set_string_if_nonempty("output.prefix", "output.prefix");

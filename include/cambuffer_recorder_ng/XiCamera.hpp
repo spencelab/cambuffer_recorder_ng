@@ -40,6 +40,7 @@ private:
     bool hardware_trigger_{false};
     int gpi_selector_{1};
     std::string trigger_edge_{"rising"};
+    int buffers_queue_size_{16};
     bool running_{false};
     uint64_t last_frame_number_{0};
 };
