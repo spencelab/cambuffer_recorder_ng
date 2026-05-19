@@ -293,6 +293,10 @@ bool CamBufferRecorderNode::startRecording(std::string& message)
 
         if (output_kind_ == "rolling_raw_binary" || mode_ == "raw8bayergbrg_rolling") {
             rolling_raw_recorder_ = std::make_shared<RollingRawRecorder>();
+            rolling_raw_recorder_->setEventCallback(
+                [this](const std::string& event_type, bool success, const std::string& event_message) {
+                    this->publishRecordingEvent(event_type, success, event_message);
+                });
             if (!rolling_raw_recorder_->start(camera_, effective_settings_, rolling_path_prefix_)) {
                 message = "Rolling raw recorder failed to start for prefix '" + rolling_path_prefix_ + "'.";
                 RCLCPP_ERROR(get_logger(), "%s", message.c_str());

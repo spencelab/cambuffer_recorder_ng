@@ -36,6 +36,9 @@ private:
     int image_data_format_{0};
     double exposure_us_{2000.0};
     double gain_db_{0.0};
+    bool hardware_trigger_{false};
+    int gpi_selector_{1};
+    std::string trigger_edge_{"rising"};
     bool running_{false};
 };
 

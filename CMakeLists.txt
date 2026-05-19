@@ -223,6 +223,7 @@ ament_target_dependencies(${NODE_TARGET}
 # =========================
 #  Raw rolling tools
 # =========================
+# INFO
 add_executable(raw_rolling_info
   src/tools/raw_rolling_info.cpp
 )
@@ -240,6 +241,7 @@ ament_target_dependencies(raw_rolling_info
   rclcpp
 )
 
+# TO MP4
 add_executable(raw_rolling_to_mp4
   src/tools/raw_rolling_to_mp4.cpp
 )
@@ -261,6 +263,16 @@ ament_target_dependencies(raw_rolling_to_mp4
   OpenCV
 )
 
+# AUDIT
+add_executable(raw_rolling_audit
+  src/tools/raw_rolling_audit.cpp
+)
+
+target_include_directories(raw_rolling_audit
+  PRIVATE
+    include
+)
+
 # =========================
 #  Installation
 # =========================
@@ -269,6 +281,7 @@ install(TARGETS
   ${PROJECT_NAME}_lib
   raw_rolling_info
   raw_rolling_to_mp4
+  raw_rolling_audit
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}

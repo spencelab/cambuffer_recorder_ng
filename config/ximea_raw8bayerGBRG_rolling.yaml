@@ -5,7 +5,7 @@ cambuffer_recorder_ng:
 
     camera.width: 2048
     camera.height: 700
-    camera.fps: 100.0
+    camera.fps: 5.0
     camera.exposure_us: 2000.0
     camera.gain_db: 0.0
     camera.pixel_format: "bayer_gbrg8"
