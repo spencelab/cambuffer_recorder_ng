@@ -2,7 +2,10 @@
 
 Note broader develop notes here:
 https://github.com/aspence/spencelab/wiki/Ubuntu-22-Jammy-ROS-2-Humble-Testing-and-Mac-Multipass-Development
-
+### TODO
+1. Add storage alerts and warnings and stops.
+2. When you start recording it tells you time remaining on device.
+   
 ## Running and testing:
 
 ```
