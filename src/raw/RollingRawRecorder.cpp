@@ -69,10 +69,37 @@ bool RollingRawRecorder::start(std::shared_ptr<ICamera> camera,
         return false;
     }
 
-    if (!isGbrgRaw8Like(pixel_format, bayer_pattern)) {
-        std::cerr << "RollingRawRecorder: raw8bayerGBRG_rolling requires one-byte GBRG Bayer input, "
-                  << "but camera.pixel_format='" << pixel_format
-                  << "' and camera.bayer_pattern='" << bayer_pattern << "'\n";
+    const std::string mode = settings_.getOr<std::string>("mode", "raw8bayerGBRG_rolling");
+    std::string mode_lc = mode;
+    std::transform(mode_lc.begin(), mode_lc.end(), mode_lc.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    RawPixelFormat raw_pixel_format = RawPixelFormat::RAW8_BAYER_GBRG;
+
+    if (mode_lc == "raw8bayergbrg_rolling") {
+        if (!isGbrgRaw8Like(pixel_format, bayer_pattern)) {
+            std::cerr << "RollingRawRecorder: raw8bayerGBRG_rolling requires one-byte GBRG Bayer input, "
+                      << "but camera.pixel_format='" << pixel_format
+                      << "' and camera.bayer_pattern='" << bayer_pattern << "'\n";
+            return false;
+        }
+        raw_pixel_format = RawPixelFormat::RAW8_BAYER_GBRG;
+    } else if (mode_lc == "raw8mono_rolling") {
+        std::string pf_lc = pixel_format;
+        std::transform(pf_lc.begin(), pf_lc.end(), pf_lc.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        const bool mono8_like =
+            (pf_lc == "mono8" || pf_lc == "raw8" || pf_lc == "gray8" || pf_lc == "grey8");
+
+        if (!mono8_like) {
+            std::cerr << "RollingRawRecorder: raw8mono_rolling requires one-byte mono input, "
+                      << "but camera.pixel_format='" << pixel_format << "'\n";
+            return false;
+        }
+        raw_pixel_format = RawPixelFormat::RAW8_MONO;
+    } else {
+        std::cerr << "RollingRawRecorder: unsupported rolling raw mode '" << mode << "'\n";
         return false;
     }
 
@@ -101,7 +128,7 @@ bool RollingRawRecorder::start(std::shared_ptr<ICamera> camera,
     cfg.width = width;
     cfg.height = height;
     cfg.source_stride_bytes = source_stride;
-    cfg.pixel_format = RawPixelFormat::RAW8_BAYER_GBRG;
+    cfg.pixel_format = raw_pixel_format;
     cfg.run_start_utc_ns = systemUtcNowNs();
 
     if (!writer_.open(cfg)) return false;

@@ -41,6 +41,16 @@ std::string normalizeModeName(std::string mode)
         return "raw8bayergbrg_rolling";
     }
 
+    if (mode == "raw8mono_rolling" ||
+        mode == "raw8monorolling" ||
+        mode == "raw8_mono_rolling" ||
+        mode == "raw8_mono_rolling" ||
+        mode == "mono8_rolling" ||
+        mode == "mono8rolling" ||
+        mode == "mono_rolling") {
+        return "raw8mono_rolling";
+    }
+
     return mode;
 }
 
@@ -232,6 +242,38 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("ximea.buffers_queue_size", int64_t{16});
         // RollingRawRecorder already does software pacing. Leave fakecam unpaced
         // by default to avoid two 100 Hz limiters becoming an accidental 50 Hz.
+        s.set("fake.realtime_pacing", false);
+    } else if (normalizeModeName(mode_name) == "raw8mono_rolling") {
+        s.set("output.kind", std::string{"rolling_raw_binary"});
+        s.set("output.prefix", std::string{"raw8mono_rolling"});
+        s.set("camera.width", int64_t{2048});
+        s.set("camera.height", int64_t{700});
+        s.set("camera.fps", 5.0);
+        s.set("camera.exposure_us", 2000.0);
+        s.set("camera.hardware_trigger", false);
+        s.set("camera.expected_hardware_fps", 5.0);
+        s.set("camera.grab_timeout_ms", int64_t{1000});
+        s.set("camera.timeout_warn_interval_s", 5.0);
+        s.set("camera.fps_report_interval_s", 5.0);
+        // One-byte monochrome frames from monochrome XIMEA cameras. Same raw
+        // rolling container as Bayer, but tagged RAW8_MONO so audit/info/tools
+        // do not assume a Bayer mosaic.
+        s.set("camera.pixel_format", std::string{"mono8"});
+        s.set("camera.bayer_pattern", std::string{""});
+        s.set("pipeline.debayer.enabled", false);
+        s.set("pipeline.resize.scale", 1.0);
+        s.set("pipeline.white_balance.enabled", false);
+        s.set("pipeline.white_balance.r_gain", 1.0);
+        s.set("pipeline.white_balance.g_gain", 1.0);
+        s.set("pipeline.white_balance.b_gain", 1.0);
+        s.set("output.pixel_format", std::string{"mono8"});
+        s.set("rolling.max_file_gib", 2.0);
+        s.set("rolling.max_file_bytes", int64_t{0});
+        s.set("rolling.max_frames", int64_t{0});
+        s.set("rolling.pack_rows", true);
+        s.set("ximea.buffers_queue_size", int64_t{16});
+        // RollingRawRecorder owns software pacing; leave fakecam unpaced when
+        // using this high-level rolling mode.
         s.set("fake.realtime_pacing", false);
     } else {
         s.set("output.kind", std::string{"video_mp4"});
