@@ -10,7 +10,7 @@ https://github.com/aspence/spencelab/wiki/Ubuntu-22-Jammy-ROS-2-Humble-Testing-a
 
 ```
 open terminal
-ros2 run cambuffer_recorder_ng cambuffer_recorder_ng   --ros-args   -p backend:=fake   -p width:=640   -p height:=480   -p fps:=30   -p output_path:=/tmp/fakecam_test.mp4
+ros2 run cambuffer_recorder_ng cambuffer_recorder_ng   --ros-args   -p backend:=fake   -p width:=640   -p height:=480   -p fps:=30.0   -p output_path:=/tmp/fakecam_test.mp4
 open another terminal
 ros2 lifecycle set /cambuffer_recorder_ng configure
 ros2 lifecycle set /cambuffer_recorder_ng activate
