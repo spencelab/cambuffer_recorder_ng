@@ -186,6 +186,22 @@ int readFpsFromMetadata(const std::string& metadata_path, int fallback)
     return std::max(1, static_cast<int>(std::lround(fps)));
 }
 
+
+const char* rawPixelFormatToString(uint32_t fmt)
+{
+    switch (static_cast<RawPixelFormat>(fmt)) {
+        case RawPixelFormat::RAW8_BAYER_GBRG: return "RAW8_BAYER_GBRG";
+        case RawPixelFormat::RAW8_MONO: return "RAW8_MONO";
+        default: return "UNKNOWN";
+    }
+}
+
+bool isSupportedRawPixelFormat(uint32_t fmt)
+{
+    return fmt == static_cast<uint32_t>(RawPixelFormat::RAW8_BAYER_GBRG) ||
+           fmt == static_cast<uint32_t>(RawPixelFormat::RAW8_MONO);
+}
+
 uint8_t clampU8(double v)
 {
     if (v <= 0.0) return 0;
@@ -307,6 +323,19 @@ int main(int argc, char** argv)
             return 1;
         }
 
+        if (!isSupportedRawPixelFormat(fh.pixel_format)) {
+            std::cerr << "Unsupported cbrraw pixel format in file header: "
+                      << fh.pixel_format << " (" << rawPixelFormatToString(fh.pixel_format)
+                      << ") in " << current_input << "\n";
+            fclose(fp);
+            return 1;
+        }
+
+        const bool file_is_mono =
+            fh.pixel_format == static_cast<uint32_t>(RawPixelFormat::RAW8_MONO);
+        const bool file_is_bayer =
+            fh.pixel_format == static_cast<uint32_t>(RawPixelFormat::RAW8_BAYER_GBRG);
+
         if (!writer_open) {
             if (!writer.open(output, static_cast<int>(fh.width), static_cast<int>(fh.height), fps, "libx264")) {
                 std::cerr << "Could not open output movie " << output << "\n";
@@ -315,7 +344,13 @@ int main(int argc, char** argv)
             }
             writer_open = true;
             std::cerr << "[raw2mp4] writing " << output << " at "
-                      << fh.width << "x" << fh.height << "\n";
+                      << fh.width << "x" << fh.height
+                      << ", input pixel_format=" << rawPixelFormatToString(fh.pixel_format)
+                      << (file_is_mono ? " (mono grayscale -> RGB MP4)" : " (Bayer GBRG -> RGB MP4)")
+                      << "\n";
+            if (file_is_mono && wb.enabled) {
+                std::cerr << "[raw2mp4] input is RAW8_MONO; ignoring white-balance gains for grayscale conversion\n";
+            }
         }
 
         std::vector<uint8_t> raw(static_cast<size_t>(fh.width) * static_cast<size_t>(fh.height));
@@ -347,14 +382,33 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            // XIMEA default requested here: Bayer GBRG. OpenCV BayerGB2RGB corresponds to GBRG ordering.
-            if (rh.pixel_format == static_cast<uint32_t>(RawPixelFormat::RAW8_BAYER_GBRG)) {
-                cv::cvtColor(raw_mat, rgb, cv::COLOR_BayerGB2RGB);
-            } else {
-                cv::cvtColor(raw_mat, rgb, cv::COLOR_GRAY2RGB);
+            if (rh.pixel_format != fh.pixel_format) {
+                std::cerr << "Frame pixel format changed within rolling file at frame_index "
+                          << rh.frame_index << ": header=" << rawPixelFormatToString(fh.pixel_format)
+                          << " frame=" << rawPixelFormatToString(rh.pixel_format)
+                          << " (" << rh.pixel_format << ")\n";
+                fclose(fp);
+                writer.close();
+                return 1;
             }
 
-            applyWhiteBalanceRgb24(rgb, wb);
+            if (file_is_bayer) {
+                // XIMEA color default requested here: Bayer GBRG.
+                // OpenCV BayerGB2RGB corresponds to GBRG ordering.
+                cv::cvtColor(raw_mat, rgb, cv::COLOR_BayerGB2RGB);
+                applyWhiteBalanceRgb24(rgb, wb);
+            } else if (file_is_mono) {
+                // Monochrome RAW8 has no Bayer pattern and no color channels.
+                // FfmpegWriter currently accepts RGB24, so duplicate gray into RGB.
+                cv::cvtColor(raw_mat, rgb, cv::COLOR_GRAY2RGB);
+            } else {
+                std::cerr << "Unsupported frame pixel format " << rh.pixel_format
+                          << " at frame_index " << rh.frame_index << "\n";
+                fclose(fp);
+                writer.close();
+                return 1;
+            }
+
             writer.write_frame(rgb.data, static_cast<int>(rgb.step));
             ++written;
             ++frames_this_file;
