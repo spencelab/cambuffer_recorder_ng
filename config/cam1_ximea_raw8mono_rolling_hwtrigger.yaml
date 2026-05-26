@@ -1,0 +1,29 @@
+cam1:
+  ros__parameters:
+    backend: "xiapi"
+    mode: "raw8mono_rolling"
+
+    camera.width: 2048
+    camera.height: 700
+    camera.fps: 100.0
+    camera.expected_hardware_fps: 100.0
+    camera.exposure_us: 2000.0
+    camera.gain_db: 0.0
+    camera.pixel_format: "mono8"
+    camera.bayer_pattern: ""
+    camera.hardware_trigger: true
+    camera.grab_timeout_ms: 1000
+    camera.timeout_warn_interval_s: 5.0
+    camera.fps_report_interval_s: 5.0
+
+    # XiCamTool may label the first physical input GPI 0 even when xiAPI selector is 1.
+    ximea.gpi_selector: 1
+    ximea.trigger_edge: "rising"
+    ximea.buffers_queue_size: 16
+
+    output.dir: "/tmp"
+    output.prefix: "ximea_hwtrig_raw8mono_rolling"
+
+    rolling.max_file_gib: 2.0
+    rolling.max_frames: 0
+    rolling.pack_rows: true
