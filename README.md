@@ -2,6 +2,16 @@
 
 Note broader develop notes here:
 https://github.com/aspence/spencelab/wiki/Ubuntu-22-Jammy-ROS-2-Humble-Testing-and-Mac-Multipass-Development
+
+### What total actual modes do we want to support?
+
+1. Continuous streaming to disk of raw data, externally triggered for sync. (DONE).
+2. Continuous streaming to disk of processed (eg debayered, white balance) and encoded data, free run, software FPS, or externally triggered for sync. (DONE).
+3. Continuous streaming to disk of processed (eg debayered, white balance), decimated (halved resolution) and ffmpeg encoded data, externally triggered for sync. (DONE).
+4. Circular RAM buffer with pre, mid, or end trigger, dumped raw quickly and post-processed after camera session done.
+5. Circular RAM buffer pre, mid, or end trigger, on dump gets processed (debayered, white balance, gamma) and encoded with FFMPEG.
+6. 
+
 ### TODO
 1. Add storage alerts and warnings and stops.
 2. When you start recording it tells you time remaining on device.
