@@ -78,6 +78,143 @@ ros2 run cambuffer_recorder_ng raw_rolling_to_mp4 /tmp/ximea_raw8bayerGBRG_rolli
 play v1.mp4 in home dir, looks good.
 ```
 
+## Running the node from CLI
+
+Yep. Assuming the lifecycle node name is something like `/cambuffer_recorder`, first confirm it:
+
+```bash
+ros2 lifecycle nodes
+```
+
+Then inspect current state:
+
+```bash
+ros2 lifecycle get /cambuffer_recorder
+```
+
+## Lifecycle bring-up
+
+Typical lifecycle sequence:
+
+```bash
+ros2 lifecycle set /cambuffer_recorder configure
+ros2 lifecycle set /cambuffer_recorder activate
+```
+
+Check:
+
+```bash
+ros2 lifecycle get /cambuffer_recorder
+```
+
+You want:
+
+```text
+active [3]
+```
+
+## Lifecycle stop / shutdown
+
+To stop acquisition activity but keep node alive:
+
+```bash
+ros2 lifecycle set /cambuffer_recorder deactivate
+```
+
+To fully clean up camera resources:
+
+```bash
+ros2 lifecycle set /cambuffer_recorder cleanup
+```
+
+To shut it down:
+
+```bash
+ros2 lifecycle set /cambuffer_recorder shutdown
+```
+
+So the full “nice stop” sequence is usually:
+
+```bash
+ros2 lifecycle set /cambuffer_recorder deactivate
+ros2 lifecycle set /cambuffer_recorder cleanup
+```
+
+## Recording start/stop services
+
+List the service names:
+
+```bash
+ros2 service list | grep -E "record|start|stop|buffer|trigger"
+```
+
+Then inspect types:
+
+```bash
+ros2 service type /cambuffer_recorder/start_recording
+ros2 service type /cambuffer_recorder/stop_recording
+```
+
+If they are `std_srvs/srv/Trigger`, start/stop should be:
+
+```bash
+ros2 service call /cambuffer_recorder/start_recording std_srvs/srv/Trigger "{}"
+```
+
+```bash
+ros2 service call /cambuffer_recorder/stop_recording std_srvs/srv/Trigger "{}"
+```
+
+If your node is namespaced, e.g. `/cam1/cambuffer_recorder`, use:
+
+```bash
+ros2 lifecycle get /cam1/cambuffer_recorder
+ros2 lifecycle set /cam1/cambuffer_recorder configure
+ros2 lifecycle set /cam1/cambuffer_recorder activate
+ros2 service call /cam1/cambuffer_recorder/start_recording std_srvs/srv/Trigger "{}"
+ros2 service call /cam1/cambuffer_recorder/stop_recording std_srvs/srv/Trigger "{}"
+```
+
+## Watch storage topic from the patch
+
+Once active:
+
+```bash
+ros2 topic echo /cambuffer_recorder/storage/free_gib
+```
+
+or namespaced:
+
+```bash
+ros2 topic echo /cam1/cambuffer_recorder/storage/free_gib
+```
+
+## Handy one-liner flow
+
+```bash
+NODE=/cambuffer_recorder
+
+ros2 lifecycle set $NODE configure
+ros2 lifecycle set $NODE activate
+ros2 service call $NODE/start_recording std_srvs/srv/Trigger "{}"
+```
+
+Stop:
+
+```bash
+NODE=/cambuffer_recorder
+
+ros2 service call $NODE/stop_recording std_srvs/srv/Trigger "{}"
+ros2 lifecycle set $NODE deactivate
+ros2 lifecycle set $NODE cleanup
+```
+
+If the service names are slightly different, this will reveal the exact spells:
+
+```bash
+ros2 service list | grep cambuffer
+```
+
 ## Working with hw trigs 5-19-2026
 
 Notes i accidentally put in triggerbox_ros2:
