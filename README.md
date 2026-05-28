@@ -39,6 +39,45 @@ Has issues with sizes going into ffmpeg etc might need to be 704 tall multiple o
 
 With `xi_grab**` etc. Binaries. This one for example xi_grab_debayer_ffmpeg_stream.cpp is killer and saves at 250fps into an mp4 at half res that looks good just needs white balance and gamma! Files tiny! decimated!
 
+### Testing the storage patch on the dev box with a color ximea installed 5/28/2026
+
+```
+1st terminal
+ros2 run cambuffer_recorder_ng cambuffer_recorder_ng  --ros-args   --params-file ~/ros2_ws/src/cambuffer_recorder_ng/config/ximea_raw8bayerGBRG_rolling.yaml
+
+2nd terminal
+
+ros2 lifecycle set /cambuffer_recorder_ng configure
+ros2 lifecycle set /cambuffer_recorder_ng activate
+
+observe file getting bigger in /tmp
+
+3rd terminal
+
+spencelab@ros2test:~/ros2_ws/src/cambuffer_recorder_ng$ ros2 topic list
+/cambuffer_recorder_ng/recording_event
+/cambuffer_recorder_ng/settings_event
+/cambuffer_recorder_ng/storage/free_bytes
+/cambuffer_recorder_ng/storage/free_gib
+/cambuffer_recorder_ng/transition_event
+/parameter_events
+/rosout
+spencelab@ros2test:~/ros2_ws/src/cambuffer_recorder_ng$ ros2 topic echo /cambuffer_recorder_ng/storage/free_gib 
+data: 49.710811614990234
+---
+data: 49.69746017456055
+---
+data: 49.6840934753418
+
+working, will test fill up when happens in lab
+
+2nd terminal
+ros2 lifecycle set /cambuffer_recorder_ng deactivate
+ros2 run cambuffer_recorder_ng raw_rolling_to_mp4 /tmp/ximea_raw8bayerGBRG_rolling_20260528T135246Z_0000.cbrraw v1.mp4 300 25
+
+play v1.mp4 in home dir, looks good.
+```
+
 ## Working with hw trigs 5-19-2026
 
 Notes i accidentally put in triggerbox_ros2:
