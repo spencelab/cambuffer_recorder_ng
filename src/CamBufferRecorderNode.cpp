@@ -170,6 +170,8 @@ CameraSettings CamBufferRecorderNode::resolveSettingsFromOverrides(const CameraS
     // Compatibility aliases for older code/metadata readers.
     settings.set("width", settings.get<int64_t>("camera.width"));
     settings.set("height", settings.get<int64_t>("camera.height"));
+    settings.set("offset_x", settings.get<int64_t>("camera.offset_x"));
+    settings.set("offset_y", settings.get<int64_t>("camera.offset_y"));
     settings.set("fps", settings.get<double>("camera.fps"));
 
     return settings;
@@ -260,8 +262,10 @@ bool CamBufferRecorderNode::configureFromSettings(const CameraSettings& settings
         message = "Configured backend '" + backend_ + "', mode '" + mode_ + "', output kind '" + output_kind_ + "'.";
 
         RCLCPP_INFO(get_logger(),
-                    "Configured backend '%s', mode '%s', output kind '%s' (%dx%d @ %.3g fps). Built backends: %s",
+                    "Configured backend '%s', mode '%s', output kind '%s' (%dx%d @ offset %ld,%ld @ %.3g fps). Built backends: %s",
                     backend_.c_str(), mode_.c_str(), output_kind_.c_str(), width_, height_,
+                    static_cast<long>(effective_settings_.getOr<int64_t>("camera.offset_x", int64_t{0})),
+                    static_cast<long>(effective_settings_.getOr<int64_t>("camera.offset_y", int64_t{0})),
                     requested_settings_.getOr<double>("camera.fps", static_cast<double>(fps_)),
                     builtBackendSummary().c_str());
         RCLCPP_INFO(get_logger(), "Run id: %s", run_id_.c_str());

@@ -17,6 +17,14 @@
 #define XI_PRM_BUFFERS_QUEUE_SIZE "buffers_queue_size"
 #endif
 
+#ifndef XI_PRM_OFFSET_X
+#define XI_PRM_OFFSET_X "offsetX"
+#endif
+
+#ifndef XI_PRM_OFFSET_Y
+#define XI_PRM_OFFSET_Y "offsetY"
+#endif
+
 namespace cambuffer_recorder_ng {
 
 static void xiCheck(XI_RETURN stat, const std::string& what)
@@ -32,6 +40,11 @@ void XiCamera::configure(const CameraSettings& requested_settings)
 
     width_ = static_cast<int>(requested_settings.getOr<int64_t>("camera.width", int64_t{2048}));
     height_ = static_cast<int>(requested_settings.getOr<int64_t>("camera.height", int64_t{700}));
+    offset_x_ = static_cast<int>(requested_settings.getOr<int64_t>("camera.offset_x", int64_t{0}));
+    offset_y_ = static_cast<int>(requested_settings.getOr<int64_t>("camera.offset_y", int64_t{0}));
+    if (offset_x_ < 0 || offset_y_ < 0) {
+        throw std::runtime_error("XIMEA ROI offsets must be non-negative");
+    }
     exposure_us_ = requested_settings.getOr<double>("camera.exposure_us", 2000.0);
     gain_db_ = requested_settings.getOr<double>("camera.gain_db", 0.0);
     hardware_trigger_ = requested_settings.getOr<bool>("camera.hardware_trigger", false);
@@ -74,8 +87,16 @@ void XiCamera::open(int device_index)
         xiCheck(xiSetParamInt(handle_, XI_PRM_IMAGE_DATA_FORMAT, XI_RAW8), "xiSetParamInt IMAGE_DATA_FORMAT XI_RAW8");
     }
 
+    // XIMEA requires ROI width/height and offsets to remain within sensor bounds.
+    // Reset offsets first so reducing/changing an ROI cannot fail because of a
+    // previously persisted non-zero camera-side offset. Then apply the requested
+    // ROI size and finally move the ROI origin.
+    xiCheck(xiSetParamInt(handle_, XI_PRM_OFFSET_X, 0), "xiSetParamInt OFFSET_X reset");
+    xiCheck(xiSetParamInt(handle_, XI_PRM_OFFSET_Y, 0), "xiSetParamInt OFFSET_Y reset");
     xiCheck(xiSetParamInt(handle_, XI_PRM_WIDTH, width_), "xiSetParamInt WIDTH");
     xiCheck(xiSetParamInt(handle_, XI_PRM_HEIGHT, height_), "xiSetParamInt HEIGHT");
+    xiCheck(xiSetParamInt(handle_, XI_PRM_OFFSET_X, offset_x_), "xiSetParamInt OFFSET_X");
+    xiCheck(xiSetParamInt(handle_, XI_PRM_OFFSET_Y, offset_y_), "xiSetParamInt OFFSET_Y");
     xiCheck(xiSetParamInt(handle_, XI_PRM_EXPOSURE, static_cast<int>(exposure_us_)), "xiSetParamInt EXPOSURE");
     xiSetParamFloat(handle_, XI_PRM_GAIN, static_cast<float>(gain_db_));
 
@@ -104,6 +125,8 @@ void XiCamera::open(int device_index)
 
     xiGetParamInt(handle_, XI_PRM_WIDTH, &width_);
     xiGetParamInt(handle_, XI_PRM_HEIGHT, &height_);
+    xiGetParamInt(handle_, XI_PRM_OFFSET_X, &offset_x_);
+    xiGetParamInt(handle_, XI_PRM_OFFSET_Y, &offset_y_);
     xiGetParamInt(handle_, XI_PRM_IMAGE_DATA_FORMAT, &image_data_format_);
     int actual_buffers_queue_size = buffers_queue_size_;
     if (xiGetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, &actual_buffers_queue_size) == XI_OK) {
@@ -121,6 +144,8 @@ void XiCamera::open(int device_index)
     effective_settings_.set("backend", std::string{"xiapi"});
     effective_settings_.set("camera.width", int64_t{width_});
     effective_settings_.set("camera.height", int64_t{height_});
+    effective_settings_.set("camera.offset_x", int64_t{offset_x_});
+    effective_settings_.set("camera.offset_y", int64_t{offset_y_});
     effective_settings_.set("camera.exposure_us", exposure_us_);
     effective_settings_.set("camera.gain_db", gain_db_);
     effective_settings_.set("camera.hardware_trigger", hardware_trigger_);
