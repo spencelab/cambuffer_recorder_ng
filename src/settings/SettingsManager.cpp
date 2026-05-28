@@ -109,6 +109,10 @@ void SettingsManager::declareParameters()
     // Explicit namespaced settings.
     declare_int("camera.width", 0);
     declare_int("camera.height", 0);
+    // ROI origin in sensor pixels. Non-negative values are valid; XIMEA honors
+    // these as XI_PRM_OFFSET_X/Y after width/height are applied.
+    declare_int("camera.offset_x", 0);
+    declare_int("camera.offset_y", 0);
     declare_double("camera.fps", 0.0);
     declare_double("camera.exposure_us", 0.0);
     declare_double("camera.gain_db", 0.0);
@@ -165,6 +169,8 @@ CameraSettings SettingsManager::defaultsForBackend(const std::string& backend_na
     s.set("device_index", int64_t{0});
     s.set("camera.width", int64_t{640});
     s.set("camera.height", int64_t{480});
+    s.set("camera.offset_x", int64_t{0});
+    s.set("camera.offset_y", int64_t{0});
     s.set("camera.fps", 30.0);
     s.set("camera.exposure_us", 5000.0);
     s.set("camera.gain_db", 0.0);
@@ -303,6 +309,10 @@ CameraSettings SettingsManager::readRosOverrides()
         const double value = node_.get_parameter(ros_name).as_double();
         if (value > 0.0) s.set(key, value);
     };
+    auto set_int_if_nonnegative = [&](const std::string& ros_name, const std::string& key) {
+        const int value = node_.get_parameter(ros_name).as_int();
+        if (value >= 0) s.set(key, int64_t{value});
+    };
     auto set_string_if_nonempty = [&](const std::string& ros_name, const std::string& key) {
         const std::string value = node_.get_parameter(ros_name).as_string();
         if (!value.empty()) s.set(key, value);
@@ -318,6 +328,8 @@ CameraSettings SettingsManager::readRosOverrides()
 
     set_int_if_positive("camera.width", "camera.width");
     set_int_if_positive("camera.height", "camera.height");
+    set_int_if_nonnegative("camera.offset_x", "camera.offset_x");
+    set_int_if_nonnegative("camera.offset_y", "camera.offset_y");
     set_double_if_positive("camera.fps", "camera.fps");
     set_double_if_positive("camera.exposure_us", "camera.exposure_us");
     // Gain can legitimately be zero, but zero is also our default/no-op. Set it if YAML uses camera.gain_db.
@@ -386,6 +398,8 @@ CameraSettings SettingsManager::buildRequestedSettings()
     // Compatibility aliases for older code/metadata readers.
     settings.set("width", settings.get<int64_t>("camera.width"));
     settings.set("height", settings.get<int64_t>("camera.height"));
+    settings.set("offset_x", settings.get<int64_t>("camera.offset_x"));
+    settings.set("offset_y", settings.get<int64_t>("camera.offset_y"));
     settings.set("fps", settings.get<double>("camera.fps"));
 
     return settings;

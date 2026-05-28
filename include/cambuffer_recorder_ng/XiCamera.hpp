@@ -32,6 +32,7 @@ private:
     HANDLE handle_{nullptr};
     XI_IMG image_{};
     int width_{0}, height_{0};
+    int offset_x_{0}, offset_y_{0};
     int stride_bytes_{0};
     int padding_x_{0};
     int image_data_format_{0};

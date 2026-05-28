@@ -108,6 +108,10 @@ void FakeCamera::configure(const CameraSettings& requested_settings)
     effective_settings_.set("backend", std::string{"fake"});
     effective_settings_.set("camera.width", int64_t{width_});
     effective_settings_.set("camera.height", int64_t{height_});
+    // FakeCamera has no physical sensor ROI, but keep requested ROI origin in
+    // effective metadata so configs can be shared with hardware backends.
+    effective_settings_.set("camera.offset_x", requested_settings_.getOr<int64_t>("camera.offset_x", int64_t{0}));
+    effective_settings_.set("camera.offset_y", requested_settings_.getOr<int64_t>("camera.offset_y", int64_t{0}));
     effective_settings_.set("camera.fps", static_cast<double>(fps_));
     effective_settings_.set("camera.pixel_format", pixel_format_name_);
     effective_settings_.set("camera.bytes_per_pixel", int64_t{bytes_per_pixel_});

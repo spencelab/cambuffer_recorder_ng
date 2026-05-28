@@ -5,6 +5,8 @@ cam1:
 
     camera.width: 2048
     camera.height: 700
+    camera.offset_x: 0
+    camera.offset_y: 194
     camera.fps: 5.0
     camera.exposure_us: 2000.0
     camera.gain_db: 0.0

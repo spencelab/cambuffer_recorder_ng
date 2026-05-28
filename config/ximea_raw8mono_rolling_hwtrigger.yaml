@@ -5,6 +5,8 @@ cambuffer_recorder_ng:
 
     camera.width: 2048
     camera.height: 700
+    camera.offset_x: 0
+    camera.offset_y: 194
     camera.fps: 100.0
     camera.expected_hardware_fps: 100.0
     camera.exposure_us: 2000.0
