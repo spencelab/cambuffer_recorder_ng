@@ -131,6 +131,11 @@ bool RollingRawRecorder::start(std::shared_ptr<ICamera> camera,
     cfg.pixel_format = raw_pixel_format;
     cfg.run_start_utc_ns = systemUtcNowNs();
 
+    writer_.setRolloverCallback([this](uint32_t next_file_index) {
+        if (!rollover_callback_) return true;
+        return rollover_callback_(next_file_index);
+    });
+
     if (!writer_.open(cfg)) return false;
 
     frames_written_ = 0;
@@ -264,9 +269,10 @@ void RollingRawRecorder::loop()
         const uint64_t camera_frame_number = camera_->lastCameraFrameNumber();
 
         if (!writer_.writeFrame(frames_written_, utc_ns, camera_ts, camera_frame_number, payload, payload_bytes)) {
-            std::cerr << "RollingRawRecorder: writeFrame failed\n";
-            if (event_callback_) event_callback_("rolling_write_failed", false, "Rolling raw writeFrame failed.");
+            std::cerr << "RollingRawRecorder: writeFrame failed; stopping rolling capture and closing file\n";
+            if (event_callback_) event_callback_("rolling_write_failed", false, "Rolling raw writeFrame failed or rollover was refused; rolling capture stopped and file closed.");
             running_ = false;
+            writer_.close();
             break;
         }
         ++frames_written_;
