@@ -13,8 +13,9 @@ https://github.com/aspence/spencelab/wiki/Ubuntu-22-Jammy-ROS-2-Humble-Testing-a
 6. 
 
 ### TODO
-1. Add storage alerts and warnings and stops.
-2. When you start recording it tells you time remaining on device.
+1. Decrease storage alert frequency to once every 10 sec
+2. Ensure storage alert happens for every dump mode start to prevent starting in dump mode when little space. And that it also tells you space when starting in dump mode
+3. 
    
 ## Running and testing:
 
