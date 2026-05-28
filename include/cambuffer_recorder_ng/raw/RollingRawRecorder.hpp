@@ -28,6 +28,11 @@ public:
     using EventCallback = std::function<void(const std::string& event_type, bool success, const std::string& message)>;
     void setEventCallback(EventCallback callback) { event_callback_ = std::move(callback); }
 
+    // Called immediately before a rolling-file rollover. Return false to stop
+    // capture cleanly before the next file is opened.
+    using RolloverCallback = std::function<bool(uint32_t next_file_index)>;
+    void setRolloverCallback(RolloverCallback callback) { rollover_callback_ = std::move(callback); }
+
     uint64_t framesWritten() const { return frames_written_; }
     const std::vector<std::string>& filesWritten() const { return writer_.filesWritten(); }
 
@@ -56,6 +61,7 @@ private:
     double timeout_warn_interval_s_{5.0};
     double fps_report_interval_s_{5.0};
     EventCallback event_callback_;
+    RolloverCallback rollover_callback_;
 };
 
 }  // namespace cambuffer_recorder_ng

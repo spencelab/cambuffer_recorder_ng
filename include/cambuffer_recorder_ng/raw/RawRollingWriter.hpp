@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -36,6 +37,12 @@ public:
                     uint32_t payload_bytes);
     void close();
 
+    // Called immediately before opening a new rollover file. Return false to stop
+    // the rollover cleanly before creating another file. The argument is the
+    // zero-based file index that would be opened next.
+    using RolloverCallback = std::function<bool(uint32_t next_file_index)>;
+    void setRolloverCallback(RolloverCallback callback) { rollover_callback_ = std::move(callback); }
+
     uint32_t currentFileIndex() const { return file_index_; }
     uint64_t bytesInFile() const { return bytes_in_file_; }
     const std::vector<std::string>& filesWritten() const { return files_written_; }
@@ -49,6 +56,7 @@ private:
     uint32_t file_index_{0};
     uint64_t bytes_in_file_{0};
     std::vector<std::string> files_written_;
+    RolloverCallback rollover_callback_;
 };
 
 uint64_t systemUtcNowNs();

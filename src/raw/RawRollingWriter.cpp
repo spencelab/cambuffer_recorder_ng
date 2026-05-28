@@ -79,6 +79,9 @@ bool RawRollingWriter::maybeRoll(uint64_t next_record_bytes)
 {
     if (!fp_) return false;
     if (bytes_in_file_ + next_record_bytes > config_.roll_bytes) {
+        if (rollover_callback_ && !rollover_callback_(file_index_)) {
+            return false;
+        }
         return openNewFile();
     }
     return true;

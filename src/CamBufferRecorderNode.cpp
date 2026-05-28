@@ -3,6 +3,7 @@
 #include "cambuffer_recorder_ng/FakeCamera.hpp"
 #include "cambuffer_recorder_ng/settings/SettingsManager.hpp"
 #include "cambuffer_recorder_ng/settings/SettingsSerialization.hpp"
+#include "cambuffer_recorder_ng/StorageGuard.hpp"
 
 #ifdef HAVE_XIMEA
 #include "cambuffer_recorder_ng/XiCamera.hpp"
@@ -89,10 +90,25 @@ CamBufferRecorderNode::CamBufferRecorderNode()
     auto event_qos = rclcpp::QoS(rclcpp::KeepLast(50)).reliable().transient_local();
     settings_event_pub_ = this->create_publisher<std_msgs::msg::String>("~/settings_event", event_qos);
     recording_event_pub_ = this->create_publisher<std_msgs::msg::String>("~/recording_event", event_qos);
+    storage_free_bytes_pub_ = this->create_publisher<std_msgs::msg::UInt64>("~/storage/free_bytes", rclcpp::QoS(1).reliable().transient_local());
+    storage_free_gib_pub_ = this->create_publisher<std_msgs::msg::Float64>("~/storage/free_gib", rclcpp::QoS(1).reliable().transient_local());
     // Keep these event publishers active even when the lifecycle node is inactive so
     // configuration/start/stop service calls are always visible to rosbag and GUIs.
     settings_event_pub_->on_activate();
     recording_event_pub_->on_activate();
+    storage_free_bytes_pub_->on_activate();
+    storage_free_gib_pub_->on_activate();
+
+    min_free_space_gib_ = this->declare_parameter<double>("storage.min_free_space_gib", 8.0);
+    if (min_free_space_gib_ < 0.0) min_free_space_gib_ = 0.0;
+    min_free_space_bytes_ = static_cast<uint64_t>(min_free_space_gib_ * 1024.0 * 1024.0 * 1024.0);
+
+    const double storage_status_period_s = this->declare_parameter<double>("storage.status_period_s", 2.0);
+    if (storage_status_period_s > 0.0) {
+        storage_status_timer_ = this->create_wall_timer(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(storage_status_period_s)),
+            [this]() { this->publishStorageStatus(); });
+    }
 
     apply_settings_srv_ = this->create_service<cambuffer_recorder_ng::srv::ApplySettings>(
         "~/apply_settings",
@@ -125,7 +141,7 @@ CamBufferRecorderNode::CamBufferRecorderNode()
     RCLCPP_INFO(get_logger(), "Camera backends built into this binary: %s",
                 builtBackendSummary().c_str());
     RCLCPP_INFO(get_logger(),
-                "Control services ready: ~/apply_settings, ~/start_recording, ~/stop_recording, ~/get_status. Event topics: ~/settings_event, ~/recording_event.");
+                "Control services ready: ~/apply_settings, ~/start_recording, ~/stop_recording, ~/get_status. Event topics: ~/settings_event, ~/recording_event. Storage topics: ~/storage/free_bytes, ~/storage/free_gib.");
 }
 
 CameraSettings CamBufferRecorderNode::resolveSettingsFromOverrides(const CameraSettings& overrides,
@@ -250,6 +266,7 @@ bool CamBufferRecorderNode::configureFromSettings(const CameraSettings& settings
                     builtBackendSummary().c_str());
         RCLCPP_INFO(get_logger(), "Run id: %s", run_id_.c_str());
         RCLCPP_INFO(get_logger(), "Metadata path: %s", metadata_path_.c_str());
+        publishStorageStatus();
         if (output_kind_ == "rolling_raw_binary") {
             RCLCPP_INFO(get_logger(), "Rolling raw path prefix: %s", rolling_path_prefix_.c_str());
         } else {
@@ -282,6 +299,11 @@ bool CamBufferRecorderNode::startRecording(std::string& message)
     }
 
     try {
+        if (!checkStorageOrLog("recording start", message)) {
+            publishRecordingEvent("start_recording", false, message);
+            return false;
+        }
+
         camera_->start();
 
         // Write metadata at recording start so it shares the timestamped run id with the output files.
@@ -296,6 +318,17 @@ bool CamBufferRecorderNode::startRecording(std::string& message)
             rolling_raw_recorder_->setEventCallback(
                 [this](const std::string& event_type, bool success, const std::string& event_message) {
                     this->publishRecordingEvent(event_type, success, event_message);
+                });
+            rolling_raw_recorder_->setRolloverCallback(
+                [this](uint32_t next_file_index) {
+                    std::string storage_message;
+                    const bool ok = this->checkStorageOrLog(
+                        "rolling raw rollover before file index " + std::to_string(next_file_index),
+                        storage_message);
+                    if (!ok) {
+                        this->publishRecordingEvent("storage_low_stop", false, storage_message);
+                    }
+                    return ok;
                 });
             if (!rolling_raw_recorder_->start(camera_, effective_settings_, rolling_path_prefix_)) {
                 message = "Rolling raw recorder failed to start for prefix '" + rolling_path_prefix_ + "'.";
@@ -509,6 +542,68 @@ void CamBufferRecorderNode::handleGetStatus(
     response->rolling_path_prefix = rolling_path_prefix_;
     response->requested_settings_yaml = cameraSettingsToYaml(requested_settings_, "  ");
     response->effective_settings_yaml = cameraSettingsToYaml(effective_settings_, "  ");
+}
+
+
+std::string CamBufferRecorderNode::storageTargetPath() const
+{
+    if (output_kind_ == "rolling_raw_binary" || mode_ == "raw8bayergbrg_rolling" || mode_ == "raw8mono_rolling") {
+        return rolling_path_prefix_.empty() ? metadata_path_ : rolling_path_prefix_;
+    }
+    return output_path_.empty() ? metadata_path_ : output_path_;
+}
+
+bool CamBufferRecorderNode::checkStorageOrLog(const std::string& context, std::string& message)
+{
+    const std::string target_path = storageTargetPath();
+    const auto status = getStorageStatusForPath(target_path);
+
+    if (!status.ok) {
+        message = "Storage check failed during " + context + " for target '" + target_path +
+                  "': " + status.error;
+        RCLCPP_ERROR(get_logger(), "%s", message.c_str());
+        return false;
+    }
+
+    publishStorageStatus();
+
+    if (status.available_bytes < min_free_space_bytes_) {
+        std::ostringstream oss;
+        oss << "Not enough free storage during " << context << ": "
+            << bytesToGib(status.available_bytes) << " GiB available at '" << status.checked_path
+            << "', minimum is " << min_free_space_gib_ << " GiB. Stopping/refusing recording.";
+        message = oss.str();
+        RCLCPP_ERROR(get_logger(), "%s", message.c_str());
+        return false;
+    }
+
+    std::ostringstream oss;
+    oss << "Storage OK during " << context << ": "
+        << bytesToGib(status.available_bytes) << " GiB available at '" << status.checked_path
+        << "', minimum is " << min_free_space_gib_ << " GiB.";
+    message = oss.str();
+    RCLCPP_INFO(get_logger(), "%s", message.c_str());
+    return true;
+}
+
+void CamBufferRecorderNode::publishStorageStatus()
+{
+    const std::string target_path = storageTargetPath();
+    if (target_path.empty()) return;
+
+    const auto status = getStorageStatusForPath(target_path);
+    if (!status.ok) return;
+
+    if (storage_free_bytes_pub_) {
+        std_msgs::msg::UInt64 msg;
+        msg.data = status.available_bytes;
+        storage_free_bytes_pub_->publish(msg);
+    }
+    if (storage_free_gib_pub_) {
+        std_msgs::msg::Float64 msg;
+        msg.data = bytesToGib(status.available_bytes);
+        storage_free_gib_pub_->publish(msg);
+    }
 }
 
 void CamBufferRecorderNode::publishSettingsEvent(const std::string& event_type, bool success, const std::string& message)
