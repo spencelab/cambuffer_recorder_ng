@@ -5,3 +5,6 @@ log/
 *.swp
 .DS_Store
 *.user
+
+# Local generated test binaries, videos, images, patches
+/local_artifacts/
