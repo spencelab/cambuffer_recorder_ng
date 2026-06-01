@@ -19,6 +19,67 @@ https://github.com/aspence/spencelab/wiki/Ubuntu-22-Jammy-ROS-2-Humble-Testing-a
    
 ## Running and testing:
 
+### Two Cam Setup on Main 2026-06-01
+
+You need a ton of terminal tabs:
+```
+# Bring up the GUI:
+# new terminal:
+source ~/ros2_ws/.venv_gui/bin/activate
+python3 ~/ros2_ws/src/camera_control/camera_control/camera_control.py
+# Bring up the triggerbox_host so you can do hardware triggers:
+# new terminal/tab:
+ros2 run triggerbox_ros2 triggerbox_host
+# it should stabilize after awhile saying "Clock model update" 99Hz
+# later on we need to enable output. it will 100hz by default, you can change with set_framerate service!
+# new terminal/tab:
+# launch teh cam1 camera node:
+ros2 run cambuffer_recorder_ng cambuffer_recorder_ng   --ros-args   -r __node:=cam1   --params-file ~/ros2_ws/src/cambuffer_recorder_ng/config/cam1_ximea_raw8mono_rolling_hwtrigger.yaml
+# if the hardware trigger is annoying you can
+# ros2 run cambuffer_recorder_ng cambuffer_recorder_ng   --ros-args   -r __node:=cam1   --params-file ~/ros2_ws/src/cambuffer_recorder_ng/config/cam1_ximea_raw8mono_rolling.yaml
+# then configure the node:
+ros2 lifecycle set /cam1 configure
+# at this point (actually earlier, you should be able to see cam1 in the gui.
+USE THE GUI TO SELECT A CAMERA EG cam1 and cam2 and click "start selected"
+# They should go into recording mode and if you did hardware trigger they will give a "Timeout error 10 no triggers" But that's good, teh trigger isn't enabled
+# To enable the hardware trigger pusles and start gathering frames,
+# New terminal tab (could use the one wehre you've been doing the ros2 lifecycle eg...
+ros2 service call /triggerbox_host/enable_output std_srvs/srv/Trigger "{}"
+ros2 service call /triggerbox_host/disable_output std_srvs/srv/Trigger "{}"
+```
+
+On the left computer "TMILL3" or "WAS CAM3":
+```
+open terminal
+ros2 run cambuffer_recorder_ng cambuffer_recorder_ng   --ros-args   -p backend:=fake   -p width:=640   -p height:=480   -p fps:=30.0   -p output_path:=/tmp/fakecam_test.mp4
+open another terminal
+ros2 lifecycle set /cambuffer_recorder_ng configure
+ros2 lifecycle set /cambuffer_recorder_ng activate
+wait awhile, check the movie in /tmp is increasing in size...
+ros2 lifecycle set /cambuffer_recorder_ng deactivate
+ros2 lifecycle set /cambuffer_recorder_ng shutdown
+can ctrl-c the ros2 launch.
+makes mpg at the target dir - open and look for rainbows!
+```
+
+
+
+```
+open terminal
+ros2 run cambuffer_recorder_ng cambuffer_recorder_ng   --ros-args   -p backend:=fake   -p width:=640   -p height:=480   -p fps:=30.0   -p output_path:=/tmp/fakecam_test.mp4
+open another terminal
+ros2 lifecycle set /cambuffer_recorder_ng configure
+ros2 lifecycle set /cambuffer_recorder_ng activate
+wait awhile, check the movie in /tmp is increasing in size...
+ros2 lifecycle set /cambuffer_recorder_ng deactivate
+ros2 lifecycle set /cambuffer_recorder_ng shutdown
+can ctrl-c the ros2 launch.
+makes mpg at the target dir - open and look for rainbows!
+```
+
+
+
+### Single Computer
 ```
 open terminal
 ros2 run cambuffer_recorder_ng cambuffer_recorder_ng   --ros-args   -p backend:=fake   -p width:=640   -p height:=480   -p fps:=30.0   -p output_path:=/tmp/fakecam_test.mp4
