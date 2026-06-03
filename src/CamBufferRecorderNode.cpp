@@ -103,7 +103,7 @@ CamBufferRecorderNode::CamBufferRecorderNode()
     if (min_free_space_gib_ < 0.0) min_free_space_gib_ = 0.0;
     min_free_space_bytes_ = static_cast<uint64_t>(min_free_space_gib_ * 1024.0 * 1024.0 * 1024.0);
 
-    const double storage_status_period_s = this->declare_parameter<double>("storage.status_period_s", 2.0);
+    const double storage_status_period_s = this->declare_parameter<double>("storage.status_period_s", 10.0);
     if (storage_status_period_s > 0.0) {
         storage_status_timer_ = this->create_wall_timer(
             std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(storage_status_period_s)),
