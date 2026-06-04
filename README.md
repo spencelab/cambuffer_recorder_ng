@@ -13,7 +13,7 @@ https://github.com/aspence/spencelab/wiki/Ubuntu-22-Jammy-ROS-2-Humble-Testing-a
 6. 
 
 ### TODO
-1. Decrease storage alert frequency to once every 10 sec
+1. Add many to one mapping of node names in params file to one setting; eg "[cambuffer_recorder_ng,cam1]:settings..."
 2. Ensure storage alert happens for every dump mode start to prevent starting in dump mode when little space. And that it also tells you space when starting in dump mode
 3. 
    
