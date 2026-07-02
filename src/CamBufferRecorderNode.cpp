@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cctype>
+#include <iomanip>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -57,9 +59,81 @@ std::string joinPath(const std::string& dir, const std::string& name)
 
 std::string extensionForOutputKind(const std::string& output_kind)
 {
-    if (output_kind == "rolling_raw_binary") return ".cbrraw";
+    if (output_kind == "rolling_raw_binary" || output_kind == "ram_raw_circular") return ".cbrraw";
     return ".mp4";
 }
+
+bool isRollingRawOutput(const std::string& output_kind, const std::string& mode)
+{
+    return output_kind == "rolling_raw_binary" ||
+           mode == "raw8bayergbrg_rolling" ||
+           mode == "raw8mono_rolling";
+}
+
+bool isRamRawOutput(const std::string& output_kind, const std::string& mode)
+{
+    return output_kind == "ram_raw_circular" ||
+           mode == "raw8bayergbrg_ram_buffer" ||
+           mode == "raw8mono_ram_buffer";
+}
+
+bool isRawOutput(const std::string& output_kind, const std::string& mode)
+{
+    return isRollingRawOutput(output_kind, mode) || isRamRawOutput(output_kind, mode);
+}
+
+std::string sanitizeFilenameToken(const std::string& input)
+{
+    std::string out;
+    out.reserve(input.size());
+    for (char c : input) {
+        const unsigned char uc = static_cast<unsigned char>(c);
+        if (std::isalnum(uc) || c == '-' || c == '_') out.push_back(c);
+        else if (c == ' ' || c == '.') out.push_back('_');
+    }
+    if (out.size() > 48) out.resize(48);
+    return out;
+}
+
+std::string normalizeLooseToken(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        if (c == '-' || c == ' ' || c == '.') return '_';
+        return static_cast<char>(std::tolower(c));
+    });
+    return s;
+}
+
+std::string canonicalTriggerPosition(std::string position)
+{
+    position = normalizeLooseToken(std::move(position));
+    if (position.empty()) return "";
+
+    // These aliases deliberately use the lab's historical names:
+    // post-trigger means the event happened before the software trigger, so the
+    // output window should end at the trigger/request frame.
+    if (position == "end" || position == "post" || position == "post_trigger" ||
+        position == "history" || position == "previous" || position == "prior") {
+        return "end";
+    }
+    if (position == "center" || position == "centre" || position == "mid" ||
+        position == "mid_trigger" || position == "middle") {
+        return "center";
+    }
+    if (position == "start" || position == "pre" || position == "pre_trigger" ||
+        position == "future" || position == "next") {
+        return "start";
+    }
+    if (position == "custom") return "custom";
+    return position;
+}
+
+uint64_t framesFromSeconds(double seconds, double fps)
+{
+    if (seconds <= 0.0 || fps <= 0.0) return 0;
+    return static_cast<uint64_t>(std::llround(seconds * fps));
+}
+
 
 uint64_t utcNowNs()
 {
@@ -138,10 +212,17 @@ CamBufferRecorderNode::CamBufferRecorderNode()
             handleGetStatus(request, response);
         });
 
+    dump_buffer_srv_ = this->create_service<cambuffer_recorder_ng::srv::DumpBuffer>(
+        "~/dump_buffer",
+        [this](const std::shared_ptr<cambuffer_recorder_ng::srv::DumpBuffer::Request> request,
+               std::shared_ptr<cambuffer_recorder_ng::srv::DumpBuffer::Response> response) {
+            handleDumpBuffer(request, response);
+        });
+
     RCLCPP_INFO(get_logger(), "Camera backends built into this binary: %s",
                 builtBackendSummary().c_str());
     RCLCPP_INFO(get_logger(),
-                "Control services ready: ~/apply_settings, ~/start_recording, ~/stop_recording, ~/get_status. Event topics: ~/settings_event, ~/recording_event. Storage topics: ~/storage/free_bytes, ~/storage/free_gib.");
+                "Control services ready: ~/apply_settings, ~/start_recording, ~/stop_recording, ~/dump_buffer, ~/get_status. Event topics: ~/settings_event, ~/recording_event. Storage topics: ~/storage/free_bytes, ~/storage/free_gib.");
 }
 
 CameraSettings CamBufferRecorderNode::resolveSettingsFromOverrides(const CameraSettings& overrides,
@@ -253,7 +334,7 @@ bool CamBufferRecorderNode::configureFromSettings(const CameraSettings& settings
 
         metadata_path_ = requested_settings_.getOr<std::string>("metadata_path", "");
         if (metadata_path_.empty()) {
-            metadata_path_ = (output_kind_ == "rolling_raw_binary")
+            metadata_path_ = isRawOutput(output_kind_, mode_)
                 ? rolling_path_prefix_ + ".metadata.yaml"
                 : output_path_ + ".metadata.yaml";
         }
@@ -271,8 +352,10 @@ bool CamBufferRecorderNode::configureFromSettings(const CameraSettings& settings
         RCLCPP_INFO(get_logger(), "Run id: %s", run_id_.c_str());
         RCLCPP_INFO(get_logger(), "Metadata path: %s", metadata_path_.c_str());
         publishStorageStatus();
-        if (output_kind_ == "rolling_raw_binary") {
+        if (isRollingRawOutput(output_kind_, mode_)) {
             RCLCPP_INFO(get_logger(), "Rolling raw path prefix: %s", rolling_path_prefix_.c_str());
+        } else if (isRamRawOutput(output_kind_, mode_)) {
+            RCLCPP_INFO(get_logger(), "RAM circular raw session/dump path prefix: %s", rolling_path_prefix_.c_str());
         } else {
             RCLCPP_INFO(get_logger(), "Video output path: %s", output_path_.c_str());
         }
@@ -317,7 +400,7 @@ bool CamBufferRecorderNode::startRecording(std::string& message)
         effective_settings_.set("rolling.path_prefix", rolling_path_prefix_);
         writeTextFile(metadata_path_, buildMetadataYaml(run_id_, backend_, mode_, output_kind_, requested_settings_, effective_settings_));
 
-        if (output_kind_ == "rolling_raw_binary" || mode_ == "raw8bayergbrg_rolling") {
+        if (isRollingRawOutput(output_kind_, mode_)) {
             rolling_raw_recorder_ = std::make_shared<RollingRawRecorder>();
             rolling_raw_recorder_->setEventCallback(
                 [this](const std::string& event_type, bool success, const std::string& event_message) {
@@ -342,6 +425,37 @@ bool CamBufferRecorderNode::startRecording(std::string& message)
                 return false;
             }
             message = "Backend '" + backend_ + "' active, rolling RAW binary capture to " + rolling_path_prefix_ + "_####.cbrraw";
+            RCLCPP_INFO(get_logger(), "%s", message.c_str());
+        } else if (isRamRawOutput(output_kind_, mode_)) {
+            ram_raw_recorder_ = std::make_shared<RamCircularRawRecorder>();
+            ram_raw_recorder_->setEventCallback(
+                [this](const std::string& event_type, bool success, const std::string& event_message) {
+                    if (success) {
+                        RCLCPP_INFO(this->get_logger(), "%s: %s", event_type.c_str(), event_message.c_str());
+                    } else {
+                        RCLCPP_WARN(this->get_logger(), "%s: %s", event_type.c_str(), event_message.c_str());
+                    }
+                    this->publishRecordingEvent(event_type, success, event_message);
+                });
+            ram_raw_recorder_->setRolloverCallback(
+                [this](uint32_t next_file_index) {
+                    std::string storage_message;
+                    const bool ok = this->checkStorageOrLog(
+                        "RAM dump raw rollover before file index " + std::to_string(next_file_index),
+                        storage_message);
+                    if (!ok) {
+                        this->publishRecordingEvent("storage_low_stop", false, storage_message);
+                    }
+                    return ok;
+                });
+            if (!ram_raw_recorder_->start(camera_, effective_settings_, rolling_path_prefix_)) {
+                message = "RAM circular raw recorder failed to start for prefix '" + rolling_path_prefix_ + "'.";
+                RCLCPP_ERROR(get_logger(), "%s", message.c_str());
+                camera_->stop();
+                publishRecordingEvent("start_recording", false, message);
+                return false;
+            }
+            message = "Backend '" + backend_ + "' active, buffering RAW frames in RAM. Use ~/dump_buffer to write CBRRAW dumps under " + rolling_path_prefix_ + "_dumpNNNNNN_####.cbrraw";
             RCLCPP_INFO(get_logger(), "%s", message.c_str());
         } else {
             recorder_ = std::make_shared<Recorder>();
@@ -384,6 +498,10 @@ bool CamBufferRecorderNode::stopRecording(std::string& message)
         rolling_raw_recorder_->stop();
         rolling_raw_recorder_.reset();
     }
+    if (ram_raw_recorder_) {
+        ram_raw_recorder_->stop();
+        ram_raw_recorder_.reset();
+    }
     if (recorder_) {
         recorder_->stop();
         recorder_.reset();
@@ -404,7 +522,7 @@ bool CamBufferRecorderNode::stopRecording(std::string& message)
 void CamBufferRecorderNode::cleanupCameraAndRecorders()
 {
     std::string ignored;
-    if (recording_ || rolling_raw_recorder_ || recorder_) {
+    if (recording_ || rolling_raw_recorder_ || ram_raw_recorder_ || recorder_) {
         stopRecording(ignored);
     }
     if (camera_) {
@@ -548,10 +666,205 @@ void CamBufferRecorderNode::handleGetStatus(
     response->effective_settings_yaml = cameraSettingsToYaml(effective_settings_, "  ");
 }
 
+void CamBufferRecorderNode::handleDumpBuffer(
+    const std::shared_ptr<cambuffer_recorder_ng::srv::DumpBuffer::Request> request,
+    std::shared_ptr<cambuffer_recorder_ng::srv::DumpBuffer::Response> response)
+{
+    // Capture local receive time immediately. If the service request does not
+    // carry an explicit synchronized trigger_utc_ns, this becomes the dump
+    // anchor. Do this before storage checks or other work so multi-camera
+    // software-trigger alignment is not affected by local bookkeeping latency.
+    const uint64_t local_receive_utc_ns = systemUtcNowNs();
+
+    if (!recording_ || !ram_raw_recorder_) {
+        response->success = false;
+        response->message = "RAM circular raw recorder is not active. Use a *_ram_buffer mode/output.kind:=ram_raw_circular and start recording first.";
+        RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+        publishRecordingEvent("dump_buffer", false, response->message);
+        return;
+    }
+
+    std::string storage_message;
+    if (!checkStorageOrLog("RAM buffer dump", storage_message)) {
+        response->success = false;
+        response->message = storage_message;
+        publishRecordingEvent("dump_buffer", false, response->message);
+        return;
+    }
+
+    const double fps_for_windows = std::max(
+        0.0, effective_settings_.getOr<double>(
+            "camera.expected_hardware_fps",
+            effective_settings_.getOr<double>("camera.fps", static_cast<double>(fps_))));
+
+    RamBufferDumpRequest dump_request;
+    dump_request.label = request->label;
+    dump_request.allow_partial = request->allow_partial ||
+        effective_settings_.getOr<bool>("ram_buffer.allow_partial_default", false);
+    dump_request.anchor_pc_utc_ns = request->trigger_utc_ns != 0
+        ? request->trigger_utc_ns
+        : local_receive_utc_ns;
+
+    const bool use_legacy_custom_seconds = (request->pre_s > 0.0 || request->post_s > 0.0);
+    if (use_legacy_custom_seconds) {
+        dump_request.trigger_position = "custom";
+        dump_request.window_s = std::max(0.0, request->pre_s) + std::max(0.0, request->post_s);
+        dump_request.window_frames = 0;
+        dump_request.frames_before_trigger = framesFromSeconds(std::max(0.0, request->pre_s), fps_for_windows);
+        dump_request.frames_after_trigger = framesFromSeconds(std::max(0.0, request->post_s), fps_for_windows);
+    } else {
+        std::string trigger_position = canonicalTriggerPosition(request->trigger_position);
+        if (trigger_position.empty()) {
+            trigger_position = canonicalTriggerPosition(
+                effective_settings_.getOr<std::string>("ram_buffer.default_trigger_position", "end"));
+        }
+        if (trigger_position.empty()) trigger_position = "end";
+
+        dump_request.trigger_position = trigger_position;
+        dump_request.window_s = request->window_s > 0.0
+            ? request->window_s
+            : effective_settings_.getOr<double>("ram_buffer.default_window_s", 4.0);
+
+        const int64_t configured_window_frames = effective_settings_.getOr<int64_t>(
+            "ram_buffer.default_window_frames", int64_t{0});
+        dump_request.window_frames = request->window_frames > 0
+            ? request->window_frames
+            : static_cast<uint32_t>(std::max<int64_t>(0, configured_window_frames));
+
+        const uint64_t total_window_frames = dump_request.window_frames > 0
+            ? static_cast<uint64_t>(dump_request.window_frames)
+            : framesFromSeconds(dump_request.window_s, fps_for_windows);
+
+        if (total_window_frames == 0) {
+            response->success = false;
+            response->message = "RAM dump resolved to zero frames. Set window_frames or a positive window_s and expected FPS.";
+            RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+            publishRecordingEvent("dump_buffer", false, response->message);
+            return;
+        }
+
+        if (trigger_position == "end") {
+            dump_request.frames_before_trigger = total_window_frames;
+            dump_request.frames_after_trigger = 0;
+        } else if (trigger_position == "center") {
+            dump_request.frames_before_trigger = (total_window_frames + 1) / 2;
+            dump_request.frames_after_trigger = total_window_frames - dump_request.frames_before_trigger;
+        } else if (trigger_position == "start") {
+            dump_request.frames_before_trigger = 0;
+            dump_request.frames_after_trigger = total_window_frames;
+        } else {
+            response->success = false;
+            response->message = "Unknown ram_buffer trigger_position '" + trigger_position +
+                "'. Use post_trigger/end, mid_trigger/center, pre_trigger/start, or legacy pre_s/post_s custom values.";
+            RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+            publishRecordingEvent("dump_buffer", false, response->message);
+            return;
+        }
+    }
+
+    if (!request->output_prefix.empty()) {
+        dump_request.output_prefix = request->output_prefix;
+    } else {
+        const uint64_t dump_number = ++dump_counter_;
+        std::ostringstream prefix;
+        prefix << rolling_path_prefix_ << "_dump"
+               << std::setw(6) << std::setfill('0') << dump_number;
+        const std::string safe_label = sanitizeFilenameToken(request->label);
+        if (!safe_label.empty()) prefix << "_" << safe_label;
+        dump_request.output_prefix = prefix.str();
+    }
+
+    const uint64_t total_resolved_frames =
+        dump_request.frames_before_trigger + dump_request.frames_after_trigger;
+    const double resolved_window_s = fps_for_windows > 0.0
+        ? static_cast<double>(total_resolved_frames) / fps_for_windows
+        : 0.0;
+
+    RCLCPP_INFO(get_logger(),
+                "Dumping RAM buffer: trigger_position=%s, window=%lu frames (%.3f s at %.3f fps), "
+                "before_or_at_trigger=%lu frames, after_trigger=%lu frames, allow_partial=%s, "
+                "anchor_pc_utc_ns=%lu%s, prefix=%s",
+                dump_request.trigger_position.c_str(),
+                static_cast<unsigned long>(total_resolved_frames),
+                resolved_window_s, fps_for_windows,
+                static_cast<unsigned long>(dump_request.frames_before_trigger),
+                static_cast<unsigned long>(dump_request.frames_after_trigger),
+                dump_request.allow_partial ? "true" : "false",
+                static_cast<unsigned long>(dump_request.anchor_pc_utc_ns),
+                request->trigger_utc_ns != 0 ? " (request trigger_utc_ns)" : " (local receive time)",
+                dump_request.output_prefix.c_str());
+
+    const RamBufferDumpResult result = ram_raw_recorder_->dump(dump_request);
+
+    response->success = result.success;
+    response->message = result.message;
+    response->dump_prefix = result.dump_prefix;
+    response->first_file = result.first_file;
+    response->metadata_path = result.success ? result.dump_prefix + ".metadata.yaml" : "";
+    response->trigger_position = dump_request.trigger_position;
+    response->frames_before_trigger = dump_request.frames_before_trigger;
+    response->frames_after_trigger = dump_request.frames_after_trigger;
+    response->first_frame_index = result.first_frame_index;
+    response->last_frame_index = result.last_frame_index;
+    response->frames_written = result.frames_written;
+    response->dropped_frames = result.dropped_frames;
+    response->anchor_pc_utc_ns = result.anchor_pc_utc_ns;
+    response->trigger_frame_index = result.trigger_frame_index;
+    response->trigger_frame_pc_utc_ns = result.trigger_frame_pc_utc_ns;
+    response->trigger_frame_camera_timestamp_ns = result.trigger_frame_camera_timestamp_ns;
+    response->trigger_frame_camera_frame_number = result.trigger_frame_camera_frame_number;
+
+    if (result.success) {
+        CameraSettings dump_effective_settings = effective_settings_;
+        dump_effective_settings.set("ram_buffer.dump.label", request->label);
+        dump_effective_settings.set("ram_buffer.dump.trigger_position", dump_request.trigger_position);
+        dump_effective_settings.set("ram_buffer.dump.window_s", dump_request.window_s);
+        dump_effective_settings.set("ram_buffer.dump.window_frames", static_cast<int64_t>(dump_request.window_frames));
+        dump_effective_settings.set("ram_buffer.dump.frames_before_trigger", static_cast<int64_t>(dump_request.frames_before_trigger));
+        dump_effective_settings.set("ram_buffer.dump.frames_after_trigger", static_cast<int64_t>(dump_request.frames_after_trigger));
+        dump_effective_settings.set("ram_buffer.dump.resolved_window_frames", static_cast<int64_t>(total_resolved_frames));
+        dump_effective_settings.set("ram_buffer.dump.resolved_window_s", resolved_window_s);
+        dump_effective_settings.set("ram_buffer.dump.fps_for_window_conversion", fps_for_windows);
+        dump_effective_settings.set("ram_buffer.dump.pre_s", fps_for_windows > 0.0 ? static_cast<double>(dump_request.frames_before_trigger) / fps_for_windows : 0.0);
+        dump_effective_settings.set("ram_buffer.dump.post_s", fps_for_windows > 0.0 ? static_cast<double>(dump_request.frames_after_trigger) / fps_for_windows : 0.0);
+        dump_effective_settings.set("ram_buffer.dump.allow_partial", dump_request.allow_partial);
+        dump_effective_settings.set("ram_buffer.dump.local_receive_utc_ns", static_cast<int64_t>(local_receive_utc_ns));
+        dump_effective_settings.set("ram_buffer.dump.request_trigger_utc_ns", static_cast<int64_t>(request->trigger_utc_ns));
+        dump_effective_settings.set("ram_buffer.dump.anchor_pc_utc_ns", static_cast<int64_t>(result.anchor_pc_utc_ns));
+        dump_effective_settings.set("ram_buffer.dump.trigger_frame_index", static_cast<int64_t>(result.trigger_frame_index));
+        dump_effective_settings.set("ram_buffer.dump.trigger_frame_pc_utc_ns", static_cast<int64_t>(result.trigger_frame_pc_utc_ns));
+        dump_effective_settings.set("ram_buffer.dump.trigger_frame_camera_timestamp_ns", static_cast<int64_t>(result.trigger_frame_camera_timestamp_ns));
+        dump_effective_settings.set("ram_buffer.dump.trigger_frame_camera_frame_number", static_cast<int64_t>(result.trigger_frame_camera_frame_number));
+        dump_effective_settings.set("ram_buffer.dump.prefix", result.dump_prefix);
+        dump_effective_settings.set("ram_buffer.dump.first_file", result.first_file);
+        dump_effective_settings.set("ram_buffer.dump.first_frame_index", static_cast<int64_t>(result.first_frame_index));
+        dump_effective_settings.set("ram_buffer.dump.last_frame_index", static_cast<int64_t>(result.last_frame_index));
+        dump_effective_settings.set("ram_buffer.dump.frames_written", static_cast<int64_t>(result.frames_written));
+        dump_effective_settings.set("ram_buffer.dump.dropped_frames", static_cast<int64_t>(result.dropped_frames));
+        dump_effective_settings.set("rolling.path_prefix", result.dump_prefix);
+        dump_effective_settings.set("metadata_path", response->metadata_path);
+
+        try {
+            writeTextFile(response->metadata_path,
+                          buildMetadataYaml(run_id_, backend_, mode_, output_kind_, requested_settings_, dump_effective_settings));
+        } catch (const std::exception& e) {
+            response->success = false;
+            response->message = std::string("RAM dump succeeded but metadata write failed: ") + e.what();
+            RCLCPP_ERROR(get_logger(), "%s", response->message.c_str());
+            publishRecordingEvent("dump_buffer", false, response->message);
+            return;
+        }
+        RCLCPP_INFO(get_logger(), "%s Metadata: %s", response->message.c_str(), response->metadata_path.c_str());
+    } else {
+        RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+    }
+
+    publishRecordingEvent("dump_buffer", response->success, response->message);
+}
 
 std::string CamBufferRecorderNode::storageTargetPath() const
 {
-    if (output_kind_ == "rolling_raw_binary" || mode_ == "raw8bayergbrg_rolling" || mode_ == "raw8mono_rolling") {
+    if (isRawOutput(output_kind_, mode_)) {
         return rolling_path_prefix_.empty() ? metadata_path_ : rolling_path_prefix_;
     }
     return output_path_.empty() ? metadata_path_ : output_path_;

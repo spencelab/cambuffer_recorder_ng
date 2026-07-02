@@ -1,4 +1,5 @@
 #include "cambuffer_recorder_ng/raw/RawRollingWriter.hpp"
+#include "cambuffer_recorder_ng/raw/Crc32.hpp"
 
 #include <chrono>
 #include <cstring>
@@ -70,7 +71,8 @@ bool RawRollingWriter::openNewFile()
     bytes_in_file_ = sizeof(fh);
     files_written_.push_back(filename);
     std::cerr << "[raw-roll] opened " << filename << " (" << config_.width << "x" << config_.height
-              << ", source stride " << config_.source_stride_bytes << ")\n";
+              << ", source stride " << config_.source_stride_bytes
+              << ", payload_crc32=" << (config_.payload_crc32_enabled ? "on" : "off") << ")\n";
     ++file_index_;
     return true;
 }
@@ -103,7 +105,7 @@ bool RawRollingWriter::writeFrame(uint64_t frame_index,
     fh.magic = CBRRAW_FRAME_MAGIC;
     fh.version = CBRRAW_VERSION;
     fh.header_size = sizeof(RawRollingFrameHeader);
-    fh.header_flags = 0;
+    fh.header_flags = config_.payload_crc32_enabled ? CBRRAW_FRAME_FLAG_PAYLOAD_CRC32 : 0;
     fh.frame_index = frame_index;
     fh.pc_utc_ns = pc_utc_ns;
     fh.camera_timestamp_ns = camera_timestamp_ns;
@@ -113,6 +115,7 @@ bool RawRollingWriter::writeFrame(uint64_t frame_index,
     fh.source_stride_bytes = config_.source_stride_bytes;
     fh.payload_bytes = payload_bytes;
     fh.pixel_format = static_cast<uint32_t>(config_.pixel_format);
+    fh.payload_crc32 = config_.payload_crc32_enabled ? crc32Ieee(data, payload_bytes) : 0;
 
     if (fwrite(&fh, 1, sizeof(fh), fp_) != sizeof(fh)) {
         perror("fwrite rolling frame header");

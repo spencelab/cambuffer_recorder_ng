@@ -1,0 +1,56 @@
+# Dump a window of the RAM circular raw buffer to a CBRRAW rolling-file set.
+#
+# Lab-facing trigger_position names:
+#   "post_trigger" / "end"    -> dump the window ending at the trigger/request
+#                                  frame, e.g. previous 4 seconds.
+#   "mid_trigger" / "center"  -> dump before and after the trigger/request.
+#   "pre_trigger" / "start"   -> dump the window after the trigger/request,
+#                                  e.g. next 4 seconds.
+#
+# window_frames is exact and preferred when nonzero. If window_frames is zero,
+# window_s is converted to frames using expected_hardware_fps/camera.fps.
+# If trigger_position/window_s/window_frames are left empty/zero, node defaults
+# from ram_buffer.default_trigger_position/default_window_s/default_window_frames
+# are used.
+#
+# Legacy/expert override: if either pre_s or post_s is positive, those values are
+# used instead of trigger_position/window_s/window_frames. In that custom mode,
+# pre_s means seconds before-or-at the trigger frame and post_s means seconds
+# after the trigger frame.
+string label
+string trigger_position
+float64 window_s
+uint32 window_frames
+float64 pre_s
+float64 post_s
+bool allow_partial
+
+# Optional synchronized trigger/request time in UTC nanoseconds.
+# If nonzero, each camera resolves the trigger frame as the newest buffered
+# frame with pc_utc_ns <= trigger_utc_ns. This is useful when a controller
+# sends the same stamped dump request to multiple camera PCs.
+# If zero, the camera node uses its local service receive time.
+uint64 trigger_utc_ns
+
+# Optional complete path prefix. If empty, the node uses:
+#   <output.dir>/<output.prefix>_<run_id>_dumpNNNNNN
+# RawRollingWriter appends _0000.cbrraw, _0001.cbrraw, ...
+string output_prefix
+---
+bool success
+string message
+string dump_prefix
+string first_file
+string metadata_path
+string trigger_position
+uint64 frames_before_trigger
+uint64 frames_after_trigger
+uint64 first_frame_index
+uint64 last_frame_index
+uint64 frames_written
+uint64 dropped_frames
+uint64 anchor_pc_utc_ns
+uint64 trigger_frame_index
+uint64 trigger_frame_pc_utc_ns
+uint64 trigger_frame_camera_timestamp_ns
+uint64 trigger_frame_camera_frame_number

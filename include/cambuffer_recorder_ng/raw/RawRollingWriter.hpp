@@ -20,6 +20,10 @@ struct RawRollingWriterConfig
     uint32_t source_stride_bytes = 0;
     RawPixelFormat pixel_format = RawPixelFormat::RAW8_BAYER_GBRG;
     uint64_t run_start_utc_ns = 0;
+
+    // CRC32 is useful for RAM dumps and audits, but direct rolling capture is
+    // bandwidth/CPU constrained. Keep it opt-in for rolling mode.
+    bool payload_crc32_enabled = false;
 };
 
 class RawRollingWriter

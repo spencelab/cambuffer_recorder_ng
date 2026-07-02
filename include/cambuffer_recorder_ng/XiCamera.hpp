@@ -26,6 +26,14 @@ public:
     void close() override;
     bool grab(uint8_t*& data, size_t& size, uint64_t& ts,
               int& width, int& height, int& stride, int timeout_ms = 100) override;
+    bool grabPackedInto(uint8_t* dst,
+                        size_t dst_capacity,
+                        size_t& payload_bytes,
+                        uint64_t& ts,
+                        int& width,
+                        int& height,
+                        int& stride,
+                        int timeout_ms = 100) override;
     uint64_t lastCameraFrameNumber() const override { return last_frame_number_; }
 
 private:

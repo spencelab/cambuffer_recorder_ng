@@ -55,19 +55,19 @@ int main(int argc, char** argv)
     uint64_t first_idx = 0, last_idx = 0;
     uint64_t first_camera_frame_number = 0, last_camera_frame_number = 0;
     uint64_t camera_frame_number_gaps = 0, total_camera_frame_number_gap = 0;
+    uint64_t frames_with_crc32 = 0;
 
     while (true) {
         RawRollingFrameHeader rh{};
-        const size_t got = fread(&rh, 1, sizeof(rh), fp);
-        if (got == 0) break;
-        if (got != sizeof(rh)) {
-            std::cerr << "Partial frame header at frame " << frame_count << "\n";
+        bool eof = false;
+        std::string header_error;
+        if (!readRawRollingFrameHeader(fp, rh, eof, header_error)) {
+            if (eof) break;
+            std::cerr << "Frame header error at frame " << frame_count
+                      << ": " << header_error << "\n";
             break;
         }
-        if (rh.magic != CBRRAW_FRAME_MAGIC) {
-            std::cerr << "Bad frame magic at frame " << frame_count << "\n";
-            break;
-        }
+        if (rh.header_flags & CBRRAW_FRAME_FLAG_PAYLOAD_CRC32) ++frames_with_crc32;
         if (frame_count == 0) {
             first_utc = rh.pc_utc_ns;
             first_idx = rh.frame_index;
@@ -89,6 +89,7 @@ int main(int argc, char** argv)
     }
 
     std::cout << "frames: " << frame_count << "\n";
+    std::cout << "frames_with_payload_crc32: " << frames_with_crc32 << "\n";
     if (frame_count > 0) {
         std::cout << "first_frame_index: " << first_idx << "\n";
         std::cout << "last_frame_index: " << last_idx << "\n";

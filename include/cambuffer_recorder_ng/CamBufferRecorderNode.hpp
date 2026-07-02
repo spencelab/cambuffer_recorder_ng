@@ -11,6 +11,7 @@
 
 #include "cambuffer_recorder_ng/srv/apply_settings.hpp"
 #include "cambuffer_recorder_ng/srv/get_status.hpp"
+#include "cambuffer_recorder_ng/srv/dump_buffer.hpp"
 
 #include <atomic>
 #include <memory>
@@ -20,6 +21,7 @@
 #include "cambuffer_recorder_ng/ICamera.hpp"
 #include "cambuffer_recorder_ng/Recorder.hpp"
 #include "cambuffer_recorder_ng/raw/RollingRawRecorder.hpp"
+#include "cambuffer_recorder_ng/raw/RamCircularRawRecorder.hpp"
 #include "cambuffer_recorder_ng/settings/CameraSettings.hpp"
 
 namespace cambuffer_recorder_ng
@@ -61,6 +63,9 @@ private:
     void handleGetStatus(
         const std::shared_ptr<cambuffer_recorder_ng::srv::GetStatus::Request> request,
         std::shared_ptr<cambuffer_recorder_ng::srv::GetStatus::Response> response);
+    void handleDumpBuffer(
+        const std::shared_ptr<cambuffer_recorder_ng::srv::DumpBuffer::Request> request,
+        std::shared_ptr<cambuffer_recorder_ng::srv::DumpBuffer::Response> response);
 
     void publishSettingsEvent(const std::string& event_type, bool success, const std::string& message);
     void publishRecordingEvent(const std::string& event_type, bool success, const std::string& message);
@@ -72,11 +77,13 @@ private:
     std::shared_ptr<ICamera> camera_;
     std::shared_ptr<Recorder> recorder_;
     std::shared_ptr<RollingRawRecorder> rolling_raw_recorder_;
+    std::shared_ptr<RamCircularRawRecorder> ram_raw_recorder_;
 
     rclcpp::Service<cambuffer_recorder_ng::srv::ApplySettings>::SharedPtr apply_settings_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_recording_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr stop_recording_srv_;
     rclcpp::Service<cambuffer_recorder_ng::srv::GetStatus>::SharedPtr get_status_srv_;
+    rclcpp::Service<cambuffer_recorder_ng::srv::DumpBuffer>::SharedPtr dump_buffer_srv_;
 
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr settings_event_pub_;
     rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr recording_event_pub_;
@@ -97,6 +104,8 @@ private:
     std::string output_path_;
     std::string metadata_path_;
     std::string rolling_path_prefix_;
+
+    uint64_t dump_counter_{0};
 
     bool configured_{false};
     bool recording_{false};

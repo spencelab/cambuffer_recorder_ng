@@ -235,15 +235,12 @@ bool readOneFile(
 
     while (true) {
         RawRollingFrameHeader rh{};
-        in.read(reinterpret_cast<char*>(&rh), static_cast<std::streamsize>(sizeof(rh)));
-        const auto got = in.gcount();
-        if (got == 0) break;
-        if (got != static_cast<std::streamsize>(sizeof(rh))) {
-            error = "Partial frame header in " + path + " near file frame " + std::to_string(file_frame_ordinal);
-            return false;
-        }
-        if (rh.magic != CBRRAW_FRAME_MAGIC) {
-            error = "Bad frame magic in " + path + " near file frame " + std::to_string(file_frame_ordinal);
+        bool eof = false;
+        std::string header_error;
+        if (!readRawRollingFrameHeader(in, rh, eof, header_error)) {
+            if (eof) break;
+            error = "Frame header error in " + path + " near file frame " +
+                    std::to_string(file_frame_ordinal) + ": " + header_error;
             return false;
         }
         if (rh.payload_bytes == 0) {

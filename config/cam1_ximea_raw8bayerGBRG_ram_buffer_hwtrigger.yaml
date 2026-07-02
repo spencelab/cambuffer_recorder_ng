@@ -1,0 +1,49 @@
+cam1:
+  ros__parameters:
+    backend: "ximea"
+    mode: "raw8bayerGBRG_ram_buffer"
+
+    camera.width: 2048
+    camera.height: 700
+    camera.offset_x: 0
+    camera.offset_y: 194
+    camera.fps: 250.0
+    camera.expected_hardware_fps: 250.0
+    camera.exposure_us: 2000.0
+    camera.pixel_format: "bayer_gbrg8"
+    camera.bayer_pattern: "GBRG"
+
+    camera.hardware_trigger: true
+    camera.grab_timeout_ms: 1000
+    camera.timeout_warn_interval_s: 5.0
+    camera.fps_report_interval_s: 5.0
+    ximea.gpi_selector: 1
+    ximea.trigger_edge: "rising"
+    ximea.buffers_queue_size: 16
+
+    output.dir: "/tmp"
+    output.prefix: "cam1_hwtrig_raw8bayerGBRG_ram_buffer"
+
+    pipeline.white_balance.enabled: true
+    pipeline.white_balance.r_gain: 1.23
+    pipeline.white_balance.g_gain: 1.00
+    pipeline.white_balance.b_gain: 1.60
+
+    rolling.max_file_gib: 2.0
+    rolling.pack_rows: true
+
+    # RAM dumps can afford CRC because acquisition is paused while writing.
+    # Direct rolling defaults CRC off unless explicitly enabled.
+    raw.payload_crc32_enabled: false
+
+    ram_buffer.capacity_frames: 1500
+    ram_buffer.dump_policy: "pause_acquisition"
+    # Lab naming: post_trigger means the event already happened, so dump the
+    # previous window ending at the software trigger/request.
+    # Other options: "mid_trigger" and "pre_trigger".
+    ram_buffer.default_trigger_position: "post_trigger"
+    ram_buffer.default_window_s: 4.0
+    # Set nonzero to request an exact frame count instead of deriving from seconds.
+    ram_buffer.default_window_frames: 0
+    ram_buffer.allow_partial_default: false
+    ram_buffer.dump_wait_timeout_s: 30.0

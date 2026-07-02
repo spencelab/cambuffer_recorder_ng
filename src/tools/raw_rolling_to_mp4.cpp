@@ -1,5 +1,6 @@
 #include "cambuffer_recorder_ng/FfmpegWriter.hpp"
 #include "cambuffer_recorder_ng/raw/RawRollingFormat.hpp"
+#include "cambuffer_recorder_ng/raw/Crc32.hpp"
 
 #include <opencv2/imgproc.hpp>
 #include <opencv2/core.hpp>
@@ -360,10 +361,12 @@ int main(int argc, char** argv)
         uint64_t frames_this_file = 0;
         while (!stopRequested() && (max_frames == 0 || written < max_frames)) {
             RawRollingFrameHeader rh{};
-            const size_t got = fread(&rh, 1, sizeof(rh), fp);
-            if (got == 0) break;
-            if (got != sizeof(rh) || rh.magic != CBRRAW_FRAME_MAGIC) {
-                std::cerr << "Bad frame header after " << written << " frames in " << current_input << "\n";
+            bool eof = false;
+            std::string header_error;
+            if (!readRawRollingFrameHeader(fp, rh, eof, header_error)) {
+                if (eof) break;
+                std::cerr << "Bad frame header after " << written << " frames in " << current_input
+                          << ": " << header_error << "\n";
                 fclose(fp);
                 writer.close();
                 return 1;
@@ -380,6 +383,17 @@ int main(int argc, char** argv)
                 fclose(fp);
                 writer.close();
                 return 1;
+            }
+            if (rh.header_flags & CBRRAW_FRAME_FLAG_PAYLOAD_CRC32) {
+                const uint32_t actual_crc = crc32Ieee(raw.data(), raw.size());
+                if (actual_crc != rh.payload_crc32) {
+                    std::cerr << "Payload CRC32 mismatch after " << written << " frames in "
+                              << current_input << ": expected " << rh.payload_crc32
+                              << ", got " << actual_crc << "\n";
+                    fclose(fp);
+                    writer.close();
+                    return 1;
+                }
             }
 
             if (rh.pixel_format != fh.pixel_format) {

@@ -41,6 +41,15 @@ std::string normalizeModeName(std::string mode)
         return "raw8bayergbrg_rolling";
     }
 
+    if (mode == "raw8bayergbrg_ram_buffer" ||
+        mode == "raw8bayergbrgrambuffer" ||
+        mode == "raw8_bayer_gbrg_ram_buffer" ||
+        mode == "raw8_bayer_gbrg_ram" ||
+        mode == "raw8bayergbrg_ram" ||
+        mode == "bayer_ram_buffer") {
+        return "raw8bayergbrg_ram_buffer";
+    }
+
     if (mode == "raw8mono_rolling" ||
         mode == "raw8monorolling" ||
         mode == "raw8_mono_rolling" ||
@@ -49,6 +58,16 @@ std::string normalizeModeName(std::string mode)
         mode == "mono8rolling" ||
         mode == "mono_rolling") {
         return "raw8mono_rolling";
+    }
+
+    if (mode == "raw8mono_ram_buffer" ||
+        mode == "raw8monorambuffer" ||
+        mode == "raw8_mono_ram_buffer" ||
+        mode == "raw8_mono_ram" ||
+        mode == "raw8mono_ram" ||
+        mode == "mono8_ram_buffer" ||
+        mode == "mono_ram_buffer") {
+        return "raw8mono_ram_buffer";
     }
 
     return mode;
@@ -160,6 +179,17 @@ void SettingsManager::declareParameters()
     declare_int64("rolling.max_file_bytes", 0);
     declare_int64("rolling.max_frames", 0);
     declare_bool("rolling.pack_rows", true);
+
+    declare_int64("ram_buffer.capacity_frames", 1100);
+    declare_string("ram_buffer.dump_policy", "pause_acquisition");
+    declare_string("ram_buffer.default_trigger_position", "post_trigger");
+    declare_double("ram_buffer.default_window_s", 4.0);
+    declare_int64("ram_buffer.default_window_frames", 0);
+    // Legacy/expert custom-window defaults retained for compatibility.
+    declare_double("ram_buffer.default_pre_s", 4.0);
+    declare_double("ram_buffer.default_post_s", 0.0);
+    declare_bool("ram_buffer.allow_partial_default", false);
+    declare_double("ram_buffer.dump_wait_timeout_s", 30.0);
 }
 
 CameraSettings SettingsManager::defaultsForBackend(const std::string& backend_name)
@@ -217,7 +247,9 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
     s.set("output.prefix", std::string{"cbrng"});
     s.set("metadata_path", std::string{""});
 
-    if (normalizeModeName(mode_name) == "raw8bayergbrg_rolling") {
+    const std::string normalized_mode = normalizeModeName(mode_name);
+
+    if (normalized_mode == "raw8bayergbrg_rolling") {
         s.set("output.kind", std::string{"rolling_raw_binary"});
         s.set("output.prefix", std::string{"raw8bayerGBRG_rolling"});
         s.set("camera.width", int64_t{2048});
@@ -249,7 +281,7 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         // RollingRawRecorder already does software pacing. Leave fakecam unpaced
         // by default to avoid two 100 Hz limiters becoming an accidental 50 Hz.
         s.set("fake.realtime_pacing", false);
-    } else if (normalizeModeName(mode_name) == "raw8mono_rolling") {
+    } else if (normalized_mode == "raw8mono_rolling") {
         s.set("output.kind", std::string{"rolling_raw_binary"});
         s.set("output.prefix", std::string{"raw8mono_rolling"});
         s.set("camera.width", int64_t{2048});
@@ -280,6 +312,76 @@ CameraSettings SettingsManager::defaultsForMode(const std::string& mode_name)
         s.set("ximea.buffers_queue_size", int64_t{16});
         // RollingRawRecorder owns software pacing; leave fakecam unpaced when
         // using this high-level rolling mode.
+        s.set("fake.realtime_pacing", false);
+    } else if (normalized_mode == "raw8bayergbrg_ram_buffer") {
+        s.set("output.kind", std::string{"ram_raw_circular"});
+        s.set("output.prefix", std::string{"raw8bayerGBRG_ram_buffer"});
+        s.set("camera.width", int64_t{2048});
+        s.set("camera.height", int64_t{700});
+        s.set("camera.fps", 250.0);
+        s.set("camera.exposure_us", 2000.0);
+        s.set("camera.hardware_trigger", false);
+        s.set("camera.expected_hardware_fps", 250.0);
+        s.set("camera.grab_timeout_ms", int64_t{1000});
+        s.set("camera.timeout_warn_interval_s", 5.0);
+        s.set("camera.fps_report_interval_s", 5.0);
+        s.set("camera.pixel_format", std::string{"bayer_gbrg8"});
+        s.set("camera.bayer_pattern", std::string{"GBRG"});
+        s.set("pipeline.debayer.enabled", false);
+        s.set("pipeline.resize.scale", 1.0);
+        s.set("pipeline.white_balance.enabled", true);
+        s.set("pipeline.white_balance.r_gain", 1.23);
+        s.set("pipeline.white_balance.g_gain", 1.00);
+        s.set("pipeline.white_balance.b_gain", 1.60);
+        s.set("output.pixel_format", std::string{"bayer_gbrg8"});
+        s.set("rolling.max_file_gib", 2.0);
+        s.set("rolling.max_file_bytes", int64_t{0});
+        s.set("rolling.pack_rows", true);
+        s.set("ram_buffer.capacity_frames", int64_t{1100});
+        s.set("ram_buffer.dump_policy", std::string{"pause_acquisition"});
+        s.set("ram_buffer.default_trigger_position", std::string{"post_trigger"});
+        s.set("ram_buffer.default_window_s", 4.0);
+        s.set("ram_buffer.default_window_frames", int64_t{0});
+        s.set("ram_buffer.default_pre_s", 4.0);
+        s.set("ram_buffer.default_post_s", 0.0);
+        s.set("ram_buffer.allow_partial_default", false);
+        s.set("ram_buffer.dump_wait_timeout_s", 30.0);
+        s.set("ximea.buffers_queue_size", int64_t{16});
+        s.set("fake.realtime_pacing", false);
+    } else if (normalized_mode == "raw8mono_ram_buffer") {
+        s.set("output.kind", std::string{"ram_raw_circular"});
+        s.set("output.prefix", std::string{"raw8mono_ram_buffer"});
+        s.set("camera.width", int64_t{2048});
+        s.set("camera.height", int64_t{700});
+        s.set("camera.fps", 250.0);
+        s.set("camera.exposure_us", 2000.0);
+        s.set("camera.hardware_trigger", false);
+        s.set("camera.expected_hardware_fps", 250.0);
+        s.set("camera.grab_timeout_ms", int64_t{1000});
+        s.set("camera.timeout_warn_interval_s", 5.0);
+        s.set("camera.fps_report_interval_s", 5.0);
+        s.set("camera.pixel_format", std::string{"mono8"});
+        s.set("camera.bayer_pattern", std::string{""});
+        s.set("pipeline.debayer.enabled", false);
+        s.set("pipeline.resize.scale", 1.0);
+        s.set("pipeline.white_balance.enabled", false);
+        s.set("pipeline.white_balance.r_gain", 1.0);
+        s.set("pipeline.white_balance.g_gain", 1.0);
+        s.set("pipeline.white_balance.b_gain", 1.0);
+        s.set("output.pixel_format", std::string{"mono8"});
+        s.set("rolling.max_file_gib", 2.0);
+        s.set("rolling.max_file_bytes", int64_t{0});
+        s.set("rolling.pack_rows", true);
+        s.set("ram_buffer.capacity_frames", int64_t{1100});
+        s.set("ram_buffer.dump_policy", std::string{"pause_acquisition"});
+        s.set("ram_buffer.default_trigger_position", std::string{"post_trigger"});
+        s.set("ram_buffer.default_window_s", 4.0);
+        s.set("ram_buffer.default_window_frames", int64_t{0});
+        s.set("ram_buffer.default_pre_s", 4.0);
+        s.set("ram_buffer.default_post_s", 0.0);
+        s.set("ram_buffer.allow_partial_default", false);
+        s.set("ram_buffer.dump_wait_timeout_s", 30.0);
+        s.set("ximea.buffers_queue_size", int64_t{16});
         s.set("fake.realtime_pacing", false);
     } else {
         s.set("output.kind", std::string{"video_mp4"});
@@ -381,6 +483,24 @@ CameraSettings SettingsManager::readRosOverrides()
     const int64_t max_frames = node_.get_parameter("rolling.max_frames").as_int();
     if (max_frames > 0) s.set("rolling.max_frames", max_frames);
     s.set("rolling.pack_rows", node_.get_parameter("rolling.pack_rows").as_bool());
+
+    const int64_t ram_capacity_frames = node_.get_parameter("ram_buffer.capacity_frames").as_int();
+    if (ram_capacity_frames > 0) s.set("ram_buffer.capacity_frames", ram_capacity_frames);
+    set_string_if_nonempty("ram_buffer.dump_policy", "ram_buffer.dump_policy");
+    set_string_if_nonempty("ram_buffer.default_trigger_position", "ram_buffer.default_trigger_position");
+    const double ram_default_window_s = node_.get_parameter("ram_buffer.default_window_s").as_double();
+    if (ram_default_window_s > 0.0) s.set("ram_buffer.default_window_s", ram_default_window_s);
+    const int64_t ram_default_window_frames = node_.get_parameter("ram_buffer.default_window_frames").as_int();
+    if (ram_default_window_frames > 0) s.set("ram_buffer.default_window_frames", ram_default_window_frames);
+    const double ram_default_pre_s = node_.get_parameter("ram_buffer.default_pre_s").as_double();
+    if (ram_default_pre_s >= 0.0) s.set("ram_buffer.default_pre_s", ram_default_pre_s);
+    const double ram_default_post_s = node_.get_parameter("ram_buffer.default_post_s").as_double();
+    if (ram_default_post_s >= 0.0) s.set("ram_buffer.default_post_s", ram_default_post_s);
+    if (node_.get_parameter("ram_buffer.allow_partial_default").as_bool()) {
+        s.set("ram_buffer.allow_partial_default", true);
+    }
+    const double ram_dump_wait_timeout_s = node_.get_parameter("ram_buffer.dump_wait_timeout_s").as_double();
+    if (ram_dump_wait_timeout_s > 0.0) s.set("ram_buffer.dump_wait_timeout_s", ram_dump_wait_timeout_s);
 
     return s;
 }

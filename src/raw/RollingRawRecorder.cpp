@@ -130,6 +130,7 @@ bool RollingRawRecorder::start(std::shared_ptr<ICamera> camera,
     cfg.source_stride_bytes = source_stride;
     cfg.pixel_format = raw_pixel_format;
     cfg.run_start_utc_ns = systemUtcNowNs();
+    cfg.payload_crc32_enabled = settings_.getOr<bool>("raw.payload_crc32_enabled", false);
 
     writer_.setRolloverCallback([this](uint32_t next_file_index) {
         if (!rollover_callback_) return true;

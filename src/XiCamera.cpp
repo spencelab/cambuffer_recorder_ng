@@ -1,5 +1,7 @@
 #include "cambuffer_recorder_ng/XiCamera.hpp"
 
+#include <rclcpp/rclcpp.hpp>
+
 #ifdef HAVE_XIMEA
 
 #include <chrono>
@@ -168,14 +170,36 @@ void XiCamera::open(int device_index)
 void XiCamera::start()
 {
     if (!handle_) throw std::runtime_error("XiCamera not opened");
+    const auto t0 = std::chrono::steady_clock::now();
     xiCheck(xiStartAcquisition(handle_), "xiStartAcquisition");
+    const auto t1 = std::chrono::steady_clock::now();
     running_ = true;
+
+    const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    RCLCPP_INFO(rclcpp::get_logger("cambuffer_recorder_ng.xiapi"),
+                "xiStartAcquisition completed in %.3f ms", ms);
 }
 
 void XiCamera::stop()
 {
-    if (handle_) xiStopAcquisition(handle_);
+    if (!handle_) {
+        running_ = false;
+        return;
+    }
+
+    const auto t0 = std::chrono::steady_clock::now();
+    const XI_RETURN stat = xiStopAcquisition(handle_);
+    const auto t1 = std::chrono::steady_clock::now();
     running_ = false;
+
+    const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    if (stat == XI_OK) {
+        RCLCPP_INFO(rclcpp::get_logger("cambuffer_recorder_ng.xiapi"),
+                    "xiStopAcquisition completed in %.3f ms", ms);
+    } else {
+        RCLCPP_WARN(rclcpp::get_logger("cambuffer_recorder_ng.xiapi"),
+                    "xiStopAcquisition returned %d after %.3f ms", stat, ms);
+    }
 }
 
 void XiCamera::close()
@@ -191,6 +215,11 @@ bool XiCamera::grab(uint8_t*& data, size_t& size, uint64_t& ts,
                     int& width, int& height, int& stride, int timeout_ms)
 {
     if (!running_) return false;
+
+    // Ensure ordinary grab() uses xiAPI-owned buffers even if a prior
+    // grabPackedInto() call supplied an application-owned destination.
+    image_.bp = nullptr;
+    image_.bp_size = 0;
 
     XI_RETURN stat = xiGetImage(handle_, timeout_ms, &image_);
     if (stat != XI_OK || image_.bp == nullptr) {
@@ -214,6 +243,57 @@ bool XiCamera::grab(uint8_t*& data, size_t& size, uint64_t& ts,
     // XIMEA frame sequence number. This is invaluable for distinguishing true
     // camera/API skips from host-side scheduling jitter. Stored in the raw
     // rolling frame header as camera_frame_number.
+    last_frame_number_ = static_cast<uint64_t>(image_.nframe);
+
+    return true;
+}
+
+bool XiCamera::grabPackedInto(uint8_t* dst,
+                              size_t dst_capacity,
+                              size_t& payload_bytes,
+                              uint64_t& ts,
+                              int& width,
+                              int& height,
+                              int& stride,
+                              int timeout_ms)
+{
+    if (!running_ || !dst) return false;
+
+    // The direct xiAPI path is only safe for packed RAW8 frames. If XIMEA ever
+    // reports row padding, fall back to the interface default, which grabs into
+    // an xiAPI buffer and packs/copies rows. On the current MQ022 RAW8 ROI path,
+    // padding_x_ is zero, so this avoids the extra host-side memcpy.
+    if (padding_x_ != 0) {
+        return ICamera::grabPackedInto(dst, dst_capacity, payload_bytes, ts, width, height, stride, timeout_ms);
+    }
+
+    const size_t wanted = static_cast<size_t>(width_) * static_cast<size_t>(height_);
+    if (wanted == 0 || dst_capacity < wanted) return false;
+
+    image_.bp = dst;
+    image_.bp_size = static_cast<unsigned int>(dst_capacity);
+
+    XI_RETURN stat = xiGetImage(handle_, timeout_ms, &image_);
+    if (stat != XI_OK || image_.bp == nullptr) {
+        return false;
+    }
+
+    const int img_width = static_cast<int>(image_.width);
+    const int img_height = static_cast<int>(image_.height);
+    const int img_stride = img_width + padding_x_;
+    const size_t img_payload = static_cast<size_t>(img_width) * static_cast<size_t>(img_height);
+
+    if (img_width <= 0 || img_height <= 0 || img_stride != img_width || img_payload > dst_capacity) {
+        return false;
+    }
+
+    payload_bytes = img_payload;
+    width = img_width;
+    height = img_height;
+    stride = img_stride;
+
+    ts = static_cast<uint64_t>(image_.tsSec) * 1'000'000'000ULL +
+         static_cast<uint64_t>(image_.tsUSec) * 1000ULL;
     last_frame_number_ = static_cast<uint64_t>(image_.nframe);
 
     return true;

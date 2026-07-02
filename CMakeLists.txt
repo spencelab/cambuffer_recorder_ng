@@ -28,6 +28,7 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ApplySettings.srv"
   "srv/GetStatus.srv"
+  "srv/DumpBuffer.srv"
 )
 
 ament_export_dependencies(rosidl_default_runtime)
@@ -148,6 +149,7 @@ add_library(${PROJECT_NAME}_lib
   src/settings/SettingsSerialization.cpp
 
   src/raw/RollingRawRecorder.cpp
+  src/raw/RamCircularRawRecorder.cpp
   src/raw/RawRollingWriter.cpp
 
   ${CAMERA_SOURCES}
