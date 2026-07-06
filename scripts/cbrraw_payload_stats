@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Quick payload sanity stats for CBRRAW files.
+
+Default behavior finds the newest *_0000.cbrraw under /tmp and prints per-frame
+byte statistics for the first few frames. Intended for quick checks like
+"did the RAM ring actually contain pixels, or did we write zeros?".
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+import struct
+import sys
+from pathlib import Path
+from typing import Iterable, Optional
+
+FILE_MAGIC = 0x52524243   # CBRR
+FRAME_MAGIC = 0x46524243  # CBRF
+
+FILE_HEADER_FMT = "<IHHIIQQIIIIQQ"
+FILE_HEADER_SIZE = struct.calcsize(FILE_HEADER_FMT)
+
+FRAME_V1_FMT = "<IHHHHQQQIIIIII"
+FRAME_V1_SIZE = struct.calcsize(FRAME_V1_FMT)
+
+PIXEL_FORMATS = {
+    1: "RAW8_BAYER_GBRG",
+    2: "RAW8_MONO",
+}
+
+
+def eprint(*args: object) -> None:
+    print(*args, file=sys.stderr)
+
+
+def candidate_files(directory: Path, patterns: list[str]) -> Iterable[Path]:
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for p in directory.glob(pattern):
+            if p.is_file() and p.suffix == ".cbrraw" and p not in seen:
+                seen.add(p)
+                yield p
+
+
+def find_latest(path: Path, patterns: list[str]) -> Path:
+    if path.is_file():
+        return path
+    if not path.exists():
+        raise FileNotFoundError(f"path does not exist: {path}")
+    if not path.is_dir():
+        raise ValueError(f"path is neither a file nor directory: {path}")
+
+    files = list(candidate_files(path, patterns))
+    if not files:
+        raise FileNotFoundError(
+            f"no .cbrraw files found in {path} matching: {', '.join(patterns)}"
+        )
+    return max(files, key=lambda p: p.stat().st_mtime)
+
+
+def read_exact(f, n: int) -> bytes:
+    data = f.read(n)
+    if len(data) != n:
+        raise EOFError(f"expected {n} bytes, got {len(data)}")
+    return data
+
+
+def payload_stats(payload: bytes) -> tuple[int, int, float, float, float]:
+    n = len(payload)
+    if n == 0:
+        return 0, 0, 0.0, 0.0, 0.0
+    mn = min(payload)
+    mx = max(payload)
+    s = sum(payload)
+    s2 = sum(b * b for b in payload)
+    mean = s / n
+    var = max(0.0, (s2 / n) - mean * mean)
+    std = math.sqrt(var)
+    nonzero = sum(1 for b in payload if b != 0) / n
+    return mn, mx, mean, std, nonzero
+
+
+def analyze(path: Path, max_frames: int) -> int:
+    print(f"\n=== {path} ===")
+    with path.open("rb") as f:
+        file_header = read_exact(f, FILE_HEADER_SIZE)
+        (
+            magic,
+            version,
+            header_size,
+            file_index,
+            pixel_format,
+            run_start_utc_ns,
+            file_start_utc_ns,
+            width,
+            height,
+            source_stride_bytes,
+            packed_stride_bytes,
+            _reserved0,
+            _reserved1,
+        ) = struct.unpack(FILE_HEADER_FMT, file_header)
+
+        if magic != FILE_MAGIC:
+            eprint(f"bad file magic: 0x{magic:08x}; not a CBRRAW file?")
+            return 1
+        if header_size < FILE_HEADER_SIZE:
+            eprint(f"bad file header_size: {header_size} < {FILE_HEADER_SIZE}")
+            return 1
+        if header_size > FILE_HEADER_SIZE:
+            f.seek(header_size - FILE_HEADER_SIZE, 1)
+
+        print(
+            f"file_version={version} file_index={file_index} "
+            f"size={width}x{height} pixel_format={PIXEL_FORMATS.get(pixel_format, pixel_format)} "
+            f"source_stride={source_stride_bytes} packed_stride={packed_stride_bytes} "
+            f"run_start_utc_ns={run_start_utc_ns} file_start_utc_ns={file_start_utc_ns}"
+        )
+
+        frames = 0
+        suspicious_zero = 0
+        suspicious_flat = 0
+        while frames < max_frames:
+            first = f.read(FRAME_V1_SIZE)
+            if not first:
+                break
+            if len(first) != FRAME_V1_SIZE:
+                eprint(f"partial frame header at inspected frame {frames}")
+                return 1
+
+            (
+                frame_magic,
+                frame_version,
+                frame_header_size,
+                frame_flags,
+                _reserved0,
+                frame_index,
+                pc_utc_ns,
+                camera_timestamp_ns,
+                frame_width,
+                frame_height,
+                frame_source_stride,
+                payload_bytes,
+                frame_pixel_format,
+                camera_frame_number,
+            ) = struct.unpack(FRAME_V1_FMT, first)
+
+            if frame_magic != FRAME_MAGIC:
+                eprint(
+                    f"bad frame magic at inspected frame {frames}: 0x{frame_magic:08x}"
+                )
+                return 1
+            if frame_header_size < FRAME_V1_SIZE:
+                eprint(
+                    f"bad frame header_size at frame_index {frame_index}: "
+                    f"{frame_header_size} < {FRAME_V1_SIZE}"
+                )
+                return 1
+            if frame_header_size > FRAME_V1_SIZE:
+                f.seek(frame_header_size - FRAME_V1_SIZE, 1)
+
+            payload = read_exact(f, payload_bytes)
+            mn, mx, mean, std, nonzero = payload_stats(payload)
+            if mx == 0:
+                suspicious_zero += 1
+            if std == 0.0:
+                suspicious_flat += 1
+
+            crc_state = "crc32" if (frame_flags & 1) else "no_crc32"
+            print(
+                f"frame_index={frame_index} cam_frame={camera_frame_number} "
+                f"pc_utc_ns={pc_utc_ns} camera_ts_ns={camera_timestamp_ns} "
+                f"{frame_width}x{frame_height} stride={frame_source_stride} "
+                f"payload={payload_bytes} {crc_state} "
+                f"min={mn} max={mx} mean={mean:.2f} std={std:.2f} "
+                f"nonzero={nonzero:.4f}"
+            )
+            frames += 1
+
+    if frames == 0:
+        eprint("no frames inspected")
+        return 1
+
+    print(
+        f"inspected_frames={frames} zero_payload_frames={suspicious_zero} "
+        f"flat_payload_frames={suspicious_flat}"
+    )
+    if suspicious_zero == frames:
+        print("RESULT: all inspected payloads are zero/black")
+        return 3
+    if suspicious_flat == frames:
+        print("RESULT: all inspected payloads are flat/constant")
+        return 4
+    print("RESULT: payloads contain nonzero, varying image data")
+    return 0
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Print quick per-frame payload statistics for a CBRRAW file. "
+            "With no PATH, finds the newest *_0000.cbrraw in /tmp."
+        )
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default="/tmp",
+        help="CBRRAW file or directory to search. Default: /tmp",
+    )
+    parser.add_argument(
+        "--frames",
+        "-n",
+        type=int,
+        default=8,
+        help="number of frames to inspect from the start of the selected file. Default: 8",
+    )
+    parser.add_argument(
+        "--pattern",
+        action="append",
+        help=(
+            "glob pattern used when PATH is a directory. Can be repeated. "
+            "Default order prefers '*_dump*_0000.cbrraw', then '*_0000.cbrraw', then '*.cbrraw'."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    if args.frames <= 0:
+        eprint("--frames must be > 0")
+        return 2
+
+    patterns = args.pattern or ["*_dump*_0000.cbrraw", "*_0000.cbrraw", "*.cbrraw"]
+    try:
+        selected = find_latest(Path(args.path).expanduser(), patterns)
+        print(f"selected_file={selected}")
+        return analyze(selected, args.frames)
+    except Exception as exc:
+        eprint(f"cbrraw_payload_stats: {exc}")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

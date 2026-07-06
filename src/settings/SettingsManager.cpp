@@ -157,6 +157,7 @@ void SettingsManager::declareParameters()
     // roughly 150 ms of cushion at 100 Hz for externally triggered capture.
     // Set <=0 to skip setting it explicitly.
     declare_int("ximea.buffers_queue_size", 16);
+    declare_bool("ximea.direct_grab_into_enabled", false);
 
     declare_string("pipeline.debayer.enabled", "false");
     declare_double("pipeline.resize.scale", 1.0);
@@ -179,6 +180,7 @@ void SettingsManager::declareParameters()
     declare_int64("rolling.max_file_bytes", 0);
     declare_int64("rolling.max_frames", 0);
     declare_bool("rolling.pack_rows", true);
+    declare_bool("raw.payload_crc32_enabled", false);
 
     declare_int64("ram_buffer.capacity_frames", 1100);
     declare_string("ram_buffer.dump_policy", "pause_acquisition");
@@ -457,6 +459,8 @@ CameraSettings SettingsManager::readRosOverrides()
     s.set("ximea.gpi_selector", int64_t{node_.get_parameter("ximea.gpi_selector").as_int()});
     set_string_if_nonempty("ximea.trigger_edge", "ximea.trigger_edge");
     set_int_if_positive("ximea.buffers_queue_size", "ximea.buffers_queue_size");
+    s.set("ximea.direct_grab_into_enabled",
+          node_.get_parameter("ximea.direct_grab_into_enabled").as_bool());
 
     set_string_if_nonempty("output.dir", "output.dir");
     set_string_if_nonempty("output.prefix", "output.prefix");
@@ -483,6 +487,8 @@ CameraSettings SettingsManager::readRosOverrides()
     const int64_t max_frames = node_.get_parameter("rolling.max_frames").as_int();
     if (max_frames > 0) s.set("rolling.max_frames", max_frames);
     s.set("rolling.pack_rows", node_.get_parameter("rolling.pack_rows").as_bool());
+    s.set("raw.payload_crc32_enabled",
+          node_.get_parameter("raw.payload_crc32_enabled").as_bool());
 
     const int64_t ram_capacity_frames = node_.get_parameter("ram_buffer.capacity_frames").as_int();
     if (ram_capacity_frames > 0) s.set("ram_buffer.capacity_frames", ram_capacity_frames);

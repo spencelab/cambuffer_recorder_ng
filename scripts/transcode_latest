@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Find the newest CBRRAW file and run raw_rolling_to_mp4 on it."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Iterable, Optional
+
+
+def eprint(*args: object) -> None:
+    print(*args, file=sys.stderr)
+
+
+def candidate_files(directory: Path, patterns: list[str]) -> Iterable[Path]:
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for p in directory.glob(pattern):
+            if p.is_file() and p.suffix == ".cbrraw" and p not in seen:
+                seen.add(p)
+                yield p
+
+
+def find_latest(path: Path, patterns: list[str]) -> Path:
+    if path.is_file():
+        return path
+    if not path.exists():
+        raise FileNotFoundError(f"path does not exist: {path}")
+    if not path.is_dir():
+        raise ValueError(f"path is neither a file nor directory: {path}")
+    files = list(candidate_files(path, patterns))
+    if not files:
+        raise FileNotFoundError(
+            f"no .cbrraw files found in {path} matching: {', '.join(patterns)}"
+        )
+    return max(files, key=lambda p: p.stat().st_mtime)
+
+
+def infer_base(input_file: Path) -> Path:
+    name = input_file.name
+    if name.endswith("_0000.cbrraw"):
+        return input_file.with_name(name[: -len("_0000.cbrraw")])
+    if name.endswith(".cbrraw"):
+        return input_file.with_name(name[: -len(".cbrraw")])
+    return input_file.with_suffix("")
+
+
+def find_raw_rolling_to_mp4() -> list[str]:
+    sibling = Path(sys.argv[0]).resolve().parent / "raw_rolling_to_mp4"
+    if sibling.exists() and os.access(sibling, os.X_OK):
+        return [str(sibling)]
+
+    on_path = shutil.which("raw_rolling_to_mp4")
+    if on_path:
+        return [on_path]
+
+    # Last resort: this works when ROS environment is sourced, but is slower.
+    return ["ros2", "run", "cambuffer_recorder_ng", "raw_rolling_to_mp4"]
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Find the newest CBRRAW file and transcode it with raw_rolling_to_mp4. "
+            "With no PATH, searches /tmp."
+        )
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default="/tmp",
+        help="CBRRAW file or directory to search. Default: /tmp",
+    )
+    parser.add_argument(
+        "--frames",
+        "-n",
+        type=int,
+        default=500,
+        help="maximum frames to transcode. Default: 500",
+    )
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=25,
+        help="output movie frame rate. Default: 25",
+    )
+    parser.add_argument(
+        "--out",
+        "-o",
+        help="output MP4 path. Default: <input-base>_first<frames>_<fps>fps.mp4",
+    )
+    parser.add_argument(
+        "--metadata",
+        "-m",
+        help="metadata YAML path. Default: <input-base>.metadata.yaml if present",
+    )
+    parser.add_argument(
+        "--pattern",
+        action="append",
+        help=(
+            "glob pattern used when PATH is a directory. Can be repeated. "
+            "Default order prefers '*_dump*_0000.cbrraw', then '*_0000.cbrraw', then '*.cbrraw'."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the selected file and command without running the transcoder",
+    )
+    args = parser.parse_args(argv)
+
+    if args.frames <= 0:
+        eprint("--frames must be > 0")
+        return 2
+    if args.fps <= 0:
+        eprint("--fps must be > 0")
+        return 2
+
+    patterns = args.pattern or ["*_dump*_0000.cbrraw", "*_0000.cbrraw", "*.cbrraw"]
+
+    try:
+        input_file = find_latest(Path(args.path).expanduser(), patterns).resolve()
+    except Exception as exc:
+        eprint(f"transcode_latest: {exc}")
+        return 1
+
+    base = infer_base(input_file)
+    fps_label = f"{args.fps:g}".replace(".", "p")
+    output = Path(args.out).expanduser().resolve() if args.out else Path(
+        f"{base}_first{args.frames}_{fps_label}fps.mp4"
+    )
+
+    metadata_arg: Optional[Path]
+    if args.metadata:
+        metadata_arg = Path(args.metadata).expanduser().resolve()
+    else:
+        inferred = Path(f"{base}.metadata.yaml")
+        metadata_arg = inferred if inferred.exists() else None
+
+    cmd = find_raw_rolling_to_mp4() + [
+        str(input_file),
+        str(output),
+        str(args.frames),
+        f"{args.fps:g}",
+    ]
+    if metadata_arg is not None:
+        cmd.append(str(metadata_arg))
+
+    print(f"selected_file={input_file}")
+    print(f"output_file={output}")
+    if metadata_arg is not None:
+        print(f"metadata={metadata_arg}")
+    else:
+        print("metadata=(none found, transcoder will use defaults)")
+    print("command=" + " ".join(shlex_quote(x) for x in cmd))
+
+    if args.dry_run:
+        return 0
+
+    return subprocess.call(cmd)
+
+
+def shlex_quote(s: str) -> str:
+    # Small local quote helper to avoid another import in older Python contexts.
+    if not s:
+        return "''"
+    safe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-+=,@%"
+    if all(c in safe for c in s):
+        return s
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

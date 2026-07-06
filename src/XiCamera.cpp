@@ -27,6 +27,10 @@
 #define XI_PRM_OFFSET_Y "offsetY"
 #endif
 
+#ifndef XI_PRM_BUFFER_POLICY
+#define XI_PRM_BUFFER_POLICY "buffer_policy"
+#endif
+
 namespace cambuffer_recorder_ng {
 
 static void xiCheck(XI_RETURN stat, const std::string& what)
@@ -53,6 +57,7 @@ void XiCamera::configure(const CameraSettings& requested_settings)
     gpi_selector_ = static_cast<int>(requested_settings.getOr<int64_t>("ximea.gpi_selector", int64_t{1}));
     trigger_edge_ = requested_settings.getOr<std::string>("ximea.trigger_edge", "rising");
     buffers_queue_size_ = static_cast<int>(requested_settings.getOr<int64_t>("ximea.buffers_queue_size", int64_t{16}));
+    direct_grab_into_enabled_ = requested_settings.getOr<bool>("ximea.direct_grab_into_enabled", false);
     std::transform(trigger_edge_.begin(), trigger_edge_.end(), trigger_edge_.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
@@ -80,6 +85,22 @@ void XiCamera::open(int device_index)
         } else {
             std::cout << "[xiapi] buffers_queue_size requested: "
                       << buffers_queue_size_ << std::endl;
+        }
+    }
+
+    // This must be enabled only for the experimental direct grab-into-RAM path.
+    // In XI_BP_SAFE mode xiGetImage() copies into the application-provided XI_IMG.bp.
+    // In the normal/unsafe policy xiAPI may replace XI_IMG.bp with an SDK-owned buffer,
+    // which is exactly how we ended up with valid headers but all-zero RAM payloads.
+    if (direct_grab_into_enabled_) {
+        XI_RETURN bpstat = xiSetParamInt(handle_, XI_PRM_BUFFER_POLICY, XI_BP_SAFE);
+        if (bpstat != XI_OK) {
+            std::cout << "[xiapi] warning: could not set buffer_policy=XI_BP_SAFE "
+                      << "for direct_grab_into_enabled (xiAPI status " << bpstat << ")"
+                      << std::endl;
+        } else {
+            std::cout << "[xiapi] direct_grab_into_enabled=true; requested buffer_policy=XI_BP_SAFE"
+                      << std::endl;
         }
     }
 
@@ -154,6 +175,7 @@ void XiCamera::open(int device_index)
     effective_settings_.set("ximea.gpi_selector", int64_t{gpi_selector_});
     effective_settings_.set("ximea.trigger_edge", trigger_edge_);
     effective_settings_.set("ximea.buffers_queue_size", int64_t{buffers_queue_size_});
+    effective_settings_.set("ximea.direct_grab_into_enabled", direct_grab_into_enabled_);
     effective_settings_.set("camera.expected_hardware_fps",
                             requested_settings_.getOr<double>("camera.expected_hardware_fps",
                                                               requested_settings_.getOr<double>("camera.fps", 0.0)));
@@ -259,10 +281,17 @@ bool XiCamera::grabPackedInto(uint8_t* dst,
 {
     if (!running_ || !dst) return false;
 
+    // Production-safe default: use the ordinary xiAPI-owned buffer grab and copy
+    // into the caller's RAM slot. The experimental application-provided XI_IMG.bp
+    // path is opt-in because it depends on XI_BP_SAFE and is easy to get subtly
+    // wrong: metadata can look perfect while the caller buffer remains all zeroes.
+    if (!direct_grab_into_enabled_) {
+        return ICamera::grabPackedInto(dst, dst_capacity, payload_bytes, ts, width, height, stride, timeout_ms);
+    }
+
     // The direct xiAPI path is only safe for packed RAW8 frames. If XIMEA ever
     // reports row padding, fall back to the interface default, which grabs into
-    // an xiAPI buffer and packs/copies rows. On the current MQ022 RAW8 ROI path,
-    // padding_x_ is zero, so this avoids the extra host-side memcpy.
+    // an xiAPI buffer and packs/copies rows.
     if (padding_x_ != 0) {
         return ICamera::grabPackedInto(dst, dst_capacity, payload_bytes, ts, width, height, stride, timeout_ms);
     }
@@ -270,16 +299,22 @@ bool XiCamera::grabPackedInto(uint8_t* dst,
     const size_t wanted = static_cast<size_t>(width_) * static_cast<size_t>(height_);
     if (wanted == 0 || dst_capacity < wanted) return false;
 
-    image_.bp = dst;
-    image_.bp_size = static_cast<unsigned int>(dst_capacity);
+    // Use a fresh XI_IMG for every direct grab, matching the old recorder code.
+    // Reusing the member XI_IMG after xiAPI has filled internal fields makes the
+    // pointer ownership story murkier than it needs to be.
+    XI_IMG img;
+    std::memset(&img, 0, sizeof(img));
+    img.size = sizeof(XI_IMG);
+    img.bp = dst;
+    img.bp_size = static_cast<unsigned int>(dst_capacity);
 
-    XI_RETURN stat = xiGetImage(handle_, timeout_ms, &image_);
-    if (stat != XI_OK || image_.bp == nullptr) {
+    XI_RETURN stat = xiGetImage(handle_, timeout_ms, &img);
+    if (stat != XI_OK || img.bp == nullptr) {
         return false;
     }
 
-    const int img_width = static_cast<int>(image_.width);
-    const int img_height = static_cast<int>(image_.height);
+    const int img_width = static_cast<int>(img.width);
+    const int img_height = static_cast<int>(img.height);
     const int img_stride = img_width + padding_x_;
     const size_t img_payload = static_cast<size_t>(img_width) * static_cast<size_t>(img_height);
 
@@ -287,14 +322,37 @@ bool XiCamera::grabPackedInto(uint8_t* dst,
         return false;
     }
 
+    if (!direct_grab_info_logged_) {
+        direct_grab_info_logged_ = true;
+        const uint8_t first_byte = dst_capacity > 0 ? dst[0] : 0;
+        RCLCPP_INFO(rclcpp::get_logger("cambuffer_recorder_ng.xiapi"),
+                    "XIMEA direct grab first frame: dst=%p returned_bp=%p bp_size=%u image=%dx%d first_dst_byte=%u",
+                    static_cast<void*>(dst), img.bp, static_cast<unsigned int>(img.bp_size),
+                    img_width, img_height, static_cast<unsigned int>(first_byte));
+    }
+
+    // Belt and suspenders: if xiAPI did not return the caller-provided pointer,
+    // copy from the SDK-owned buffer rather than silently accepting an all-zero
+    // destination slot. This makes the failure mode obvious and protects data.
+    if (img.bp != dst) {
+        if (!direct_grab_pointer_warned_) {
+            direct_grab_pointer_warned_ = true;
+            RCLCPP_WARN(rclcpp::get_logger("cambuffer_recorder_ng.xiapi"),
+                        "XIMEA direct grab did not return the caller-provided buffer: dst=%p returned_bp=%p. "
+                        "Copying returned pixels into the RAM slot for this and subsequent frames.",
+                        static_cast<void*>(dst), img.bp);
+        }
+        std::memcpy(dst, static_cast<const uint8_t*>(img.bp), img_payload);
+    }
+
     payload_bytes = img_payload;
     width = img_width;
     height = img_height;
     stride = img_stride;
 
-    ts = static_cast<uint64_t>(image_.tsSec) * 1'000'000'000ULL +
-         static_cast<uint64_t>(image_.tsUSec) * 1000ULL;
-    last_frame_number_ = static_cast<uint64_t>(image_.nframe);
+    ts = static_cast<uint64_t>(img.tsSec) * 1'000'000'000ULL +
+         static_cast<uint64_t>(img.tsUSec) * 1000ULL;
+    last_frame_number_ = static_cast<uint64_t>(img.nframe);
 
     return true;
 }

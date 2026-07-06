@@ -20,6 +20,7 @@ cambuffer_recorder_ng:
     ximea.gpi_selector: 1
     ximea.trigger_edge: "rising"
     ximea.buffers_queue_size: 16
+    ximea.direct_grab_into_enabled: false
 
     output.dir: "/tmp"
     output.prefix: "ximea_hwtrig_raw8bayerGBRG_ram_buffer"
