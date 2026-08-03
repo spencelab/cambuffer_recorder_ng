@@ -26,12 +26,8 @@
 
   <!-- System/library runtime dependencies.
        CMake still finds FFmpeg/OpenCV via find_package/pkg-config. -->
-  <exec_depend>ffmpeg</exec_depend>
   <depend>libopencv-dev</depend>
-  <depend>libavcodec-dev</depend>
-  <depend>libavformat-dev</depend>
-  <depend>libavutil-dev</depend>
-  <depend>libswscale-dev</depend>
+  <depend>ffmpeg</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
