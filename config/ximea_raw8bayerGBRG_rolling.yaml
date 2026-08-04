@@ -1,4 +1,4 @@
-cambuffer_recorder_ng:
+/**:
   ros__parameters:
     backend: "xiapi"
     mode: "raw8bayerGBRG_rolling"
