@@ -17,9 +17,11 @@
 #include <chrono>
 #include <cmath>
 #include <cctype>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <vector>
 
 namespace cambuffer_recorder_ng
@@ -61,6 +63,47 @@ std::string extensionForOutputKind(const std::string& output_kind)
 {
     if (output_kind == "rolling_raw_binary" || output_kind == "ram_raw_circular") return ".cbrraw";
     return ".mp4";
+}
+
+bool ensureDirectoryExists(const std::string& dir_path, std::string& error)
+{
+    if (dir_path.empty()) return true;
+
+    std::error_code ec;
+    const std::filesystem::path dir(dir_path);
+
+    if (std::filesystem::exists(dir, ec)) {
+        if (ec) {
+            error = "Could not inspect directory '" + dir.string() + "': " + ec.message();
+            return false;
+        }
+        if (!std::filesystem::is_directory(dir, ec)) {
+            error = "Path exists but is not a directory: '" + dir.string() + "'";
+            return false;
+        }
+        if (ec) {
+            error = "Could not inspect directory '" + dir.string() + "': " + ec.message();
+            return false;
+        }
+        return true;
+    }
+
+    if (!std::filesystem::create_directories(dir, ec) && ec) {
+        error = "Could not create directory '" + dir.string() + "': " + ec.message();
+        return false;
+    }
+
+    return true;
+}
+
+bool ensureParentDirectoryExists(const std::string& target_path, std::string& error)
+{
+    if (target_path.empty()) return true;
+
+    const std::filesystem::path p(target_path);
+    if (!p.has_parent_path()) return true;
+
+    return ensureDirectoryExists(p.parent_path().string(), error);
 }
 
 bool isRollingRawOutput(const std::string& output_kind, const std::string& mode)
@@ -386,6 +429,18 @@ bool CamBufferRecorderNode::startRecording(std::string& message)
     }
 
     try {
+        std::string dir_error;
+        const std::string output_dir = requested_settings_.getOr<std::string>("output.dir", "/tmp");
+        if (!ensureDirectoryExists(output_dir, dir_error) ||
+            !ensureParentDirectoryExists(output_path_, dir_error) ||
+            !ensureParentDirectoryExists(rolling_path_prefix_, dir_error) ||
+            !ensureParentDirectoryExists(metadata_path_, dir_error)) {
+            message = "Could not prepare output directories before recording start: " + dir_error;
+            RCLCPP_ERROR(get_logger(), "%s", message.c_str());
+            publishRecordingEvent("start_recording", false, message);
+            return false;
+        }
+
         if (!checkStorageOrLog("recording start", message)) {
             publishRecordingEvent("start_recording", false, message);
             return false;
