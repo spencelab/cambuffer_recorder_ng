@@ -3,6 +3,7 @@
 #include "cambuffer_recorder_ng/raw/Crc32.hpp"
 
 #include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/core.hpp>
 
 #include <algorithm>
@@ -227,18 +228,50 @@ void applyWhiteBalanceRgb24(cv::Mat& rgb, const WhiteBalanceGains& wb)
     }
 }
 
+void applyGammaRgb24(cv::Mat& rgb, double gamma)
+{
+    if (rgb.empty() || rgb.type() != CV_8UC3) return;
+    if (!(gamma > 0.0) || std::fabs(gamma - 1.0) < 1e-9) return;
+
+    const double inv_gamma = 1.0 / gamma;
+    for (int y = 0; y < rgb.rows; ++y) {
+        auto* row = rgb.ptr<uint8_t>(y);
+        for (int x = 0; x < rgb.cols; ++x) {
+            uint8_t* px = row + static_cast<size_t>(x) * 3;
+            for (int c = 0; c < 3; ++c) {
+                const double normalized = static_cast<double>(px[c]) / 255.0;
+                px[c] = clampU8(std::pow(normalized, inv_gamma) * 255.0);
+            }
+        }
+    }
+}
+
+bool endsWithCaseInsensitive(const std::string& text, const std::string& suffix)
+{
+    if (suffix.size() > text.size()) return false;
+    const auto offset = text.size() - suffix.size();
+    for (size_t i = 0; i < suffix.size(); ++i) {
+        const auto a = static_cast<unsigned char>(text[offset + i]);
+        const auto b = static_cast<unsigned char>(suffix[i]);
+        if (std::tolower(a) != std::tolower(b)) return false;
+    }
+    return true;
+}
+
 void printUsage()
 {
     std::cerr
-        << "Usage: raw_rolling_to_mp4 <input_0000.cbrraw> <output.mp4> [max_frames] [fps] [metadata.yaml] [r_gain g_gain b_gain]\n"
+        << "Usage: raw_rolling_to_mp4 <input_0000.cbrraw> <output.mp4|output.png> [max_frames] [fps] [metadata.yaml] [r_gain g_gain b_gain [gamma]]\n"
         << "\n"
-        << "  max_frames=0 means convert all contiguous rolling files.\n"
+        << "  max_frames=0 means convert all contiguous rolling files for MP4 output.\n"
+        << "  If output ends in .png, the first decoded frame is written as a PNG thumbnail.\n"
         << "  If metadata.yaml is omitted, it is inferred from the input name.\n"
         << "  White balance is read from metadata keys:\n"
         << "    pipeline.white_balance.enabled\n"
         << "    pipeline.white_balance.r_gain\n"
         << "    pipeline.white_balance.g_gain\n"
-        << "    pipeline.white_balance.b_gain\n";
+        << "    pipeline.white_balance.b_gain\n"
+        << "  Optional gamma applies after debayer/white-balance. gamma=1 leaves pixels unchanged.\n";
 }
 
 }  // namespace
@@ -255,6 +288,7 @@ int main(int argc, char** argv)
 
     const std::string input = argv[1];
     const std::string output = argv[2];
+    const bool output_is_png = endsWithCaseInsensitive(output, ".png");
     const uint64_t max_frames = (argc > 3) ? std::strtoull(argv[3], nullptr, 10) : 0;
 
     std::string metadata_path = (argc > 5) ? std::string(argv[5]) : inferMetadataPath(input);
@@ -275,6 +309,11 @@ int main(int argc, char** argv)
         wb.g = std::strtod(argv[7], nullptr);
         wb.b = std::strtod(argv[8], nullptr);
     }
+    double gamma = 1.0;
+    if (argc > 9) {
+        gamma = std::strtod(argv[9], nullptr);
+        if (!(gamma > 0.0)) gamma = 1.0;
+    }
 
     if (!metadata_path.empty()) {
         if (fileExists(metadata_path)) {
@@ -287,7 +326,11 @@ int main(int argc, char** argv)
     std::cerr << "[raw2mp4] output fps: " << fps << "\n";
     std::cerr << "[raw2mp4] white balance: "
               << (wb.enabled ? "enabled" : "disabled")
-              << " R=" << wb.r << " G=" << wb.g << " B=" << wb.b << "\n";
+              << " R=" << wb.r << " G=" << wb.g << " B=" << wb.b
+              << "; gamma=" << gamma << "\n";
+    if (output_is_png) {
+        std::cerr << "[raw2mp4] PNG thumbnail mode: writing first decoded frame to " << output << "\n";
+    }
 
     std::string rolling_prefix;
     uint32_t first_index = 0;
@@ -337,7 +380,7 @@ int main(int argc, char** argv)
         const bool file_is_bayer =
             fh.pixel_format == static_cast<uint32_t>(RawPixelFormat::RAW8_BAYER_GBRG);
 
-        if (!writer_open) {
+        if (!output_is_png && !writer_open) {
             if (!writer.open(output, static_cast<int>(fh.width), static_cast<int>(fh.height), fps, "libx264")) {
                 std::cerr << "Could not open output movie " << output << "\n";
                 fclose(fp);
@@ -421,6 +464,22 @@ int main(int argc, char** argv)
                 fclose(fp);
                 writer.close();
                 return 1;
+            }
+
+            applyGammaRgb24(rgb, gamma);
+
+            if (output_is_png) {
+                cv::Mat bgr;
+                cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
+                if (!cv::imwrite(output, bgr)) {
+                    std::cerr << "Could not write PNG thumbnail " << output << "\n";
+                    fclose(fp);
+                    return 1;
+                }
+                std::cerr << "[raw2mp4] wrote PNG thumbnail from frame_index " << rh.frame_index
+                          << " to " << output << "\n";
+                fclose(fp);
+                return 0;
             }
 
             writer.write_frame(rgb.data, static_cast<int>(rgb.step));
