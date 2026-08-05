@@ -1,4 +1,4 @@
-cambuffer_recorder_ng:
+/**:
   ros__parameters:
     backend: "ximea"
     mode: "raw8bayerGBRG_rolling"
@@ -25,7 +25,7 @@ cambuffer_recorder_ng:
     # cushion at 100 Hz if the application briefly falls behind.
     ximea.buffers_queue_size: 16
 
-    output.dir: "/tmp"
+    output.dir: "/home/spencelab/camera_sessions"
     output.prefix: "ximea_hwtrig_raw8bayerGBRG_rolling"
 
     pipeline.white_balance.enabled: true

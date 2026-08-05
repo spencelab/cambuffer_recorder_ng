@@ -13,7 +13,7 @@
     camera.pixel_format: "bayer_gbrg8"
     camera.bayer_pattern: "GBRG"
 
-    output.dir: "/tmp"
+    output.dir: "/home/spencelab/camera_sessions"
     output.prefix: "ximea_raw8bayerGBRG_rolling"
 
     # Preview/conversion-only white balance gains. Recording stays raw8 Bayer;
