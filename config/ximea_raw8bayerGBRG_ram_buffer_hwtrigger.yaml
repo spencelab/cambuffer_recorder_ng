@@ -1,4 +1,4 @@
-cambuffer_recorder_ng:
+/**:
   ros__parameters:
     backend: "ximea"
     mode: "raw8bayerGBRG_ram_buffer"
@@ -35,7 +35,7 @@ cambuffer_recorder_ng:
 
     # RAM dumps can afford CRC because acquisition is paused while writing.
     # Direct rolling defaults CRC off unless explicitly enabled.
-    raw.payload_crc32_enabled: true
+    raw.payload_crc32_enabled: false
 
     ram_buffer.capacity_frames: 1500
     ram_buffer.dump_policy: "pause_acquisition"
