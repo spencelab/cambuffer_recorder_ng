@@ -1,6 +1,25 @@
 # cambuffer_recorder_ng
 
-Note broader develop notes here:
+## Recent chat to add RAM buffer raw dumps:
+https://chatgpt.com/g/g-p-6a2329439b808191b5db6834003da71e/c/6903a230-bf08-832f-a09a-fd340da7c5c9
+
+### Ending with useful things:
+
+Fantastic. That’s a real milestone: RAM ring buffer working, direct XIMEA app-buffer path verified, CRC-off dump speed restored, rolling reconfirmed, tools added, main pushed. Tiny camera dragon domesticated. 🐲
+
+For future-you, the two production-y YAML settings to remember are:
+
+ximea.direct_grab_into_enabled: true
+raw.payload_crc32_enabled: false
+
+And your quick sanity pair is now:
+
+ros2 run cambuffer_recorder_ng cbrraw_payload_stats
+ros2 run cambuffer_recorder_ng transcode_latest --frames 500 --fps 25
+
+Break earned. The next thing will have to wait politely in the hallway.
+
+## Note broader develop notes here:
 https://github.com/aspence/spencelab/wiki/Ubuntu-22-Jammy-ROS-2-Humble-Testing-and-Mac-Multipass-Development
 
 ### What total actual modes do we want to support?
