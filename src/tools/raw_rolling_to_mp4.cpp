@@ -450,9 +450,13 @@ int main(int argc, char** argv)
             }
 
             if (file_is_bayer) {
-                // XIMEA color default requested here: Bayer GBRG.
-                // OpenCV BayerGB2RGB corresponds to GBRG ordering.
-                cv::cvtColor(raw_mat, rgb, cv::COLOR_BayerGB2RGB);
+                // XIMEA/FFmpeg bayer_gbrg8 is row0: G B, row1: R G.
+                // OpenCV's Bayer conversion names are easy to misread here:
+                // COLOR_BayerGB2RGB produces red/blue swapped output for this
+                // camera's GBRG stream.  COLOR_BayerGR2RGB is the OpenCV code
+                // that yields packed RGB bytes matching FFmpegWriter's RGB24
+                // input expectation.  (It is an alias of COLOR_BayerGB2BGR.)
+                cv::cvtColor(raw_mat, rgb, cv::COLOR_BayerGR2RGB);
                 applyWhiteBalanceRgb24(rgb, wb);
             } else if (file_is_mono) {
                 // Monochrome RAW8 has no Bayer pattern and no color channels.
