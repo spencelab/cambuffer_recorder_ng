@@ -8,7 +8,8 @@ bool FfmpegWriter::open(const std::string& filename,
                         int width,
                         int height,
                         int fps,
-                        const std::string& codec_name)
+                        const std::string& codec_name,
+                        int crf)
 {
     std::lock_guard<std::mutex> lock(mtx_);
     width_ = width; height_ = height; fps_ = fps;
@@ -33,12 +34,28 @@ bool FfmpegWriter::open(const std::string& filename,
     codec_ctx_->time_base = {1, fps_};
     codec_ctx_->framerate = {fps_, 1};
     codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
-    codec_ctx_->bit_rate = 8'000'000;  // 8 Mbps
+
+    AVDictionary* codec_options = nullptr;
+    if (crf >= 0) {
+        // Match the lab's established ffmpeg CLI policy:
+        //   libx264 -pix_fmt yuv420p -crf 16
+        // Do not also set a target bitrate; CRF is the rate-control policy.
+        codec_ctx_->bit_rate = 0;
+        const std::string crf_string = std::to_string(crf);
+        av_dict_set(&codec_options, "crf", crf_string.c_str(), 0);
+        // ffmpeg/libx264's normal default is medium; make it explicit so the
+        // library API behaves reproducibly like the old command-line workflow.
+        av_dict_set(&codec_options, "preset", "medium", 0);
+    } else {
+        codec_ctx_->bit_rate = 8'000'000;  // legacy fixed-bitrate behavior
+    }
 
     if (fmt_ctx_->oformat->flags & AVFMT_GLOBALHEADER)
         codec_ctx_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
-    if (avcodec_open2(codec_ctx_, codec, nullptr) < 0) {
+    const int open_result = avcodec_open2(codec_ctx_, codec, &codec_options);
+    av_dict_free(&codec_options);
+    if (open_result < 0) {
         std::cerr << "FFmpeg: could not open codec.\n";
         return false;
     }

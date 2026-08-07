@@ -323,7 +323,12 @@ int main(int argc, char** argv)
                       << " (continuing with defaults)\n";
         }
     }
+    constexpr int kH264Crf = 16;
     std::cerr << "[raw2mp4] output fps: " << fps << "\n";
+    if (!output_is_png) {
+        std::cerr << "[raw2mp4] encoder: libx264, yuv420p, CRF " << kH264Crf
+                  << ", preset medium (constant-quality mode)\n";
+    }
     std::cerr << "[raw2mp4] white balance: "
               << (wb.enabled ? "enabled" : "disabled")
               << " R=" << wb.r << " G=" << wb.g << " B=" << wb.b
@@ -381,7 +386,8 @@ int main(int argc, char** argv)
             fh.pixel_format == static_cast<uint32_t>(RawPixelFormat::RAW8_BAYER_GBRG);
 
         if (!output_is_png && !writer_open) {
-            if (!writer.open(output, static_cast<int>(fh.width), static_cast<int>(fh.height), fps, "libx264")) {
+            if (!writer.open(output, static_cast<int>(fh.width), static_cast<int>(fh.height),
+                             fps, "libx264", kH264Crf)) {
                 std::cerr << "Could not open output movie " << output << "\n";
                 fclose(fp);
                 return 1;

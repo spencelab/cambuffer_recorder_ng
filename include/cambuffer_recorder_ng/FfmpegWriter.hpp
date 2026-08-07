@@ -25,11 +25,15 @@ public:
     FfmpegWriter() = default;
     ~FfmpegWriter() { close(); }
 
+    // crf >= 0 enables constant-quality encoding for codecs that support the
+    // "crf" private option (notably libx264). crf < 0 preserves the legacy
+    // fixed-bitrate behavior.
     bool open(const std::string& filename,
               int width,
               int height,
               int fps,
-              const std::string& codec_name = "libx264");
+              const std::string& codec_name = "libx264",
+              int crf = -1);
 
     bool write_frame(const uint8_t* rgb_data, int stride_bytes, int64_t pts_ns = 0);
     void close();
