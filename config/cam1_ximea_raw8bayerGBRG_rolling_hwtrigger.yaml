@@ -23,7 +23,7 @@ cam1:
     ximea.trigger_edge: "rising"
     # xiAPI internal image queue. Default is small; 16 gives roughly 150 ms
     # cushion at 100 Hz if the application briefly falls behind.
-    ximea.buffers_queue_size: 16
+    ximea.buffers_queue_size: 256
 
     output.dir: "/tmp"
     output.prefix: "ximea_hwtrig_raw8bayerGBRG_rolling"
