@@ -323,7 +323,7 @@ int main(int argc, char** argv)
                       << " (continuing with defaults)\n";
         }
     }
-    constexpr int kH264Crf = 16;
+    constexpr int kH264Crf = 24;
     std::cerr << "[raw2mp4] output fps: " << fps << "\n";
     if (!output_is_png) {
         std::cerr << "[raw2mp4] encoder: libx264, yuv420p, CRF " << kH264Crf
