@@ -8,6 +8,10 @@
 #include <stdexcept>
 #include <thread>
 
+#include <pthread.h>
+#include <sched.h>
+#include <sys/resource.h>
+
 namespace cambuffer_recorder_ng
 {
 
@@ -140,6 +144,7 @@ bool RollingRawRecorder::start(std::shared_ptr<ICamera> camera,
     if (!writer_.open(cfg)) return false;
 
     frames_written_ = 0;
+    diagnostics_ = {};
     running_ = true;
     worker_ = std::thread(&RollingRawRecorder::loop, this);
     return true;
@@ -189,6 +194,28 @@ void RollingRawRecorder::loop()
     auto last_fps_report = std::chrono::steady_clock::now();
     uint64_t frames_at_last_report = frames_written_.load();
     bool waiting_reported = false;
+
+    int sched_policy = -1;
+    sched_param sched_params{};
+    if (pthread_getschedparam(pthread_self(), &sched_policy, &sched_params) == 0) {
+        diagnostics_.worker_sched_policy = sched_policy;
+        diagnostics_.worker_sched_priority = sched_params.sched_priority;
+    }
+    rlimit rtprio_limit{};
+    if (getrlimit(RLIMIT_RTPRIO, &rtprio_limit) == 0) {
+        diagnostics_.rlimit_rtprio_soft =
+            rtprio_limit.rlim_cur == RLIM_INFINITY ? -2 : static_cast<int64_t>(rtprio_limit.rlim_cur);
+        diagnostics_.rlimit_rtprio_hard =
+            rtprio_limit.rlim_max == RLIM_INFINITY ? -2 : static_cast<int64_t>(rtprio_limit.rlim_max);
+    }
+    std::cerr << "RollingRawRecorder: worker scheduler policy=" << diagnostics_.worker_sched_policy
+              << " priority=" << diagnostics_.worker_sched_priority
+              << " RLIMIT_RTPRIO soft=" << diagnostics_.rlimit_rtprio_soft
+              << " hard=" << diagnostics_.rlimit_rtprio_hard << "\n";
+
+    const bool track_camera_frame_number = camera_ && camera_->backendName() == "xiapi";
+    bool have_previous_camera_frame = false;
+    uint64_t previous_camera_frame = 0;
 
     while (running_) {
         if (max_frames_ > 0 && frames_written_ >= max_frames_) {
@@ -268,8 +295,31 @@ void RollingRawRecorder::loop()
         }
 
         const uint64_t camera_frame_number = camera_->lastCameraFrameNumber();
+        if (track_camera_frame_number) {
+            if (have_previous_camera_frame) {
+                if (camera_frame_number > previous_camera_frame + 1) {
+                    diagnostics_.camera_frame_gaps += camera_frame_number - previous_camera_frame - 1;
+                } else if (camera_frame_number <= previous_camera_frame) {
+                    ++diagnostics_.camera_frame_nonmonotonic;
+                }
+            }
+            previous_camera_frame = camera_frame_number;
+            have_previous_camera_frame = true;
+        }
 
-        if (!writer_.writeFrame(frames_written_, utc_ns, camera_ts, camera_frame_number, payload, payload_bytes)) {
+        const auto write_start = std::chrono::steady_clock::now();
+        const bool write_ok = writer_.writeFrame(
+            frames_written_, utc_ns, camera_ts, camera_frame_number, payload, payload_bytes);
+        const auto write_end = std::chrono::steady_clock::now();
+        const double write_ms =
+            std::chrono::duration<double, std::milli>(write_end - write_start).count();
+        diagnostics_.max_write_frame_ms = std::max(diagnostics_.max_write_frame_ms, write_ms);
+        if (write_ms > 10.0) ++diagnostics_.writes_over_10ms;
+        if (write_ms > 50.0) ++diagnostics_.writes_over_50ms;
+        if (write_ms > 100.0) ++diagnostics_.writes_over_100ms;
+        if (write_ms > 500.0) ++diagnostics_.writes_over_500ms;
+
+        if (!write_ok) {
             std::cerr << "RollingRawRecorder: writeFrame failed; stopping rolling capture and closing file\n";
             if (event_callback_) event_callback_("rolling_write_failed", false, "Rolling raw writeFrame failed or rollover was refused; rolling capture stopped and file closed.");
             running_ = false;
@@ -277,6 +327,7 @@ void RollingRawRecorder::loop()
             break;
         }
         ++frames_written_;
+        diagnostics_.frames_written = frames_written_.load();
 
         if (hardware_trigger_) {
             const auto now = std::chrono::steady_clock::now();

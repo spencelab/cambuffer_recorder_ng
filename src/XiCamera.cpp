@@ -31,6 +31,22 @@
 #define XI_PRM_BUFFER_POLICY "buffer_policy"
 #endif
 
+#ifndef XI_PRM_ACQ_BUFFER_SIZE
+#define XI_PRM_ACQ_BUFFER_SIZE "acq_buffer_size"
+#endif
+
+#ifndef XI_PRM_ACQ_BUFFER_SIZE_UNIT
+#define XI_PRM_ACQ_BUFFER_SIZE_UNIT "acq_buffer_size_unit"
+#endif
+
+#ifndef XI_PRM_COUNTER_SELECTOR
+#define XI_PRM_COUNTER_SELECTOR "counter_selector"
+#endif
+
+#ifndef XI_PRM_COUNTER_VALUE
+#define XI_PRM_COUNTER_VALUE "counter_value"
+#endif
+
 namespace cambuffer_recorder_ng {
 
 static void xiCheck(XI_RETURN stat, const std::string& what)
@@ -155,8 +171,47 @@ void XiCamera::open(int device_index)
     if (xiGetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, &actual_buffers_queue_size) == XI_OK) {
         buffers_queue_size_ = actual_buffers_queue_size;
     }
+
+    int acq_buffer_size_value = 0;
+    int acq_buffer_size_unit = 1;
+    const XI_RETURN acq_size_stat = xiGetParamInt(handle_, XI_PRM_ACQ_BUFFER_SIZE, &acq_buffer_size_value);
+    const XI_RETURN acq_unit_stat = xiGetParamInt(handle_, XI_PRM_ACQ_BUFFER_SIZE_UNIT, &acq_buffer_size_unit);
+    if (acq_size_stat == XI_OK) {
+        acq_buffer_size_value_ = acq_buffer_size_value;
+        acq_buffer_size_unit_ = (acq_unit_stat == XI_OK && acq_buffer_size_unit > 0) ? acq_buffer_size_unit : 1;
+        acq_buffer_size_bytes_ = acq_buffer_size_value_ * acq_buffer_size_unit_;
+    }
+
+    if (xiGetParamInt(handle_, XI_PRM_BUFFER_POLICY, &buffer_policy_) != XI_OK) {
+        buffer_policy_ = -1;
+    }
+
     if (xiGetParamInt(handle_, XI_PRM_PADDING_X, &padding_x_) != XI_OK) padding_x_ = 0;
     stride_bytes_ = width_ + padding_x_;
+
+    const double configured_fps = requested_settings_.getOr<double>(
+        "camera.expected_hardware_fps", requested_settings_.getOr<double>("camera.fps", 0.0));
+    const int64_t frame_payload_bytes = static_cast<int64_t>(width_) * static_cast<int64_t>(height_);
+    const double acq_buffer_seconds =
+        (acq_buffer_size_bytes_ > 0 && frame_payload_bytes > 0 && configured_fps > 0.0)
+            ? static_cast<double>(acq_buffer_size_bytes_) /
+                  (static_cast<double>(frame_payload_bytes) * configured_fps)
+            : -1.0;
+    const double queue_seconds =
+        (buffers_queue_size_ > 1 && configured_fps > 0.0)
+            ? static_cast<double>(buffers_queue_size_ - 1) / configured_fps
+            : -1.0;
+
+    RCLCPP_INFO(rclcpp::get_logger("cambuffer_recorder_ng.xiapi"),
+                "XIMEA buffer readback: acq_buffer_size_value=%ld unit=%ld bytes=%ld; "
+                "buffers_queue_size=%d; buffer_policy=%d; frame_payload=%ld bytes; "
+                "estimated acq-buffer depth=%.3f s; queue depth=%.3f s",
+                static_cast<long>(acq_buffer_size_value_),
+                static_cast<long>(acq_buffer_size_unit_),
+                static_cast<long>(acq_buffer_size_bytes_),
+                buffers_queue_size_, buffer_policy_,
+                static_cast<long>(frame_payload_bytes),
+                acq_buffer_seconds, queue_seconds);
 
     int exposure_readback = 0;
     if (xiGetParamInt(handle_, XI_PRM_EXPOSURE, &exposure_readback) == XI_OK) {
@@ -175,6 +230,12 @@ void XiCamera::open(int device_index)
     effective_settings_.set("ximea.gpi_selector", int64_t{gpi_selector_});
     effective_settings_.set("ximea.trigger_edge", trigger_edge_);
     effective_settings_.set("ximea.buffers_queue_size", int64_t{buffers_queue_size_});
+    effective_settings_.set("ximea.acq_buffer_size_value_actual", int64_t{acq_buffer_size_value_});
+    effective_settings_.set("ximea.acq_buffer_size_unit_actual", int64_t{acq_buffer_size_unit_});
+    effective_settings_.set("ximea.acq_buffer_size_bytes_actual", int64_t{acq_buffer_size_bytes_});
+    effective_settings_.set("ximea.buffer_policy_actual", int64_t{buffer_policy_});
+    effective_settings_.set("ximea.acq_buffer_depth_seconds_estimated", acq_buffer_seconds);
+    effective_settings_.set("ximea.queue_depth_seconds_estimated", queue_seconds);
     effective_settings_.set("ximea.direct_grab_into_enabled", direct_grab_into_enabled_);
     effective_settings_.set("camera.expected_hardware_fps",
                             requested_settings_.getOr<double>("camera.expected_hardware_fps",
@@ -268,6 +329,46 @@ bool XiCamera::grab(uint8_t*& data, size_t& size, uint64_t& ts,
     last_frame_number_ = static_cast<uint64_t>(image_.nframe);
 
     return true;
+}
+
+CameraAcquisitionDiagnostics XiCamera::acquisitionDiagnostics()
+{
+    CameraAcquisitionDiagnostics diagnostics;
+    diagnostics.available = handle_ != nullptr;
+    diagnostics.acq_buffer_size_value = acq_buffer_size_value_;
+    diagnostics.acq_buffer_size_unit = acq_buffer_size_unit_;
+    diagnostics.acq_buffer_size_bytes = acq_buffer_size_bytes_;
+    diagnostics.buffers_queue_size = buffers_queue_size_;
+    diagnostics.buffer_policy = buffer_policy_;
+
+    if (!handle_) return diagnostics;
+
+    auto read_counter = [this](int selector, const char* label) -> int64_t {
+        const XI_RETURN select_stat = xiSetParamInt(handle_, XI_PRM_COUNTER_SELECTOR, selector);
+        if (select_stat != XI_OK) {
+            RCLCPP_WARN(rclcpp::get_logger("cambuffer_recorder_ng.xiapi"),
+                        "XIMEA counter '%s' selector unavailable (xiAPI status %d)",
+                        label, select_stat);
+            return -1;
+        }
+        int value = 0;
+        const XI_RETURN value_stat = xiGetParamInt(handle_, XI_PRM_COUNTER_VALUE, &value);
+        if (value_stat != XI_OK) {
+            RCLCPP_WARN(rclcpp::get_logger("cambuffer_recorder_ng.xiapi"),
+                        "XIMEA counter '%s' read unavailable (xiAPI status %d)",
+                        label, value_stat);
+            return -1;
+        }
+        return static_cast<int64_t>(value);
+    };
+
+    diagnostics.api_skipped_frames =
+        read_counter(XI_CNT_SEL_API_SKIPPED_FRAMES, "api_skipped_frames");
+    diagnostics.transport_skipped_frames =
+        read_counter(XI_CNT_SEL_TRANSPORT_SKIPPED_FRAMES, "transport_skipped_frames");
+    diagnostics.transport_transferred_frames =
+        read_counter(XI_CNT_SEL_TRANSPORT_TRANSFERRED_FRAMES, "transport_transferred_frames");
+    return diagnostics;
 }
 
 bool XiCamera::grabPackedInto(uint8_t* dst,
