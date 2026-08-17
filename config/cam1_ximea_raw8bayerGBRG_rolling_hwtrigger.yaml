@@ -21,9 +21,11 @@ cam1:
     camera.fps_report_interval_s: 5.0
     ximea.gpi_selector: 1
     ximea.trigger_edge: "rising"
-    # xiAPI internal image queue. Default is small; 16 gives roughly 150 ms
-    # cushion at 100 Hz if the application briefly falls behind.
-    ximea.buffers_queue_size: 256
+    # xiAPI buffering for 100 Hz RAW8 capture. ACQ_BUFFER_SIZE is the byte-addressed
+    # circular image store; it must be configured before BUFFERS_QUEUE_SIZE because
+    # xiAPI documents ACQ_BUFFER_SIZE as invalidating the queue-size setting.
+    ximea.acq_buffer_size_bytes: 805306368  # 768 MiB
+    ximea.buffers_queue_size: 512
 
     output.dir: "/tmp"
     output.prefix: "ximea_hwtrig_raw8bayerGBRG_rolling"

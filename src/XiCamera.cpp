@@ -8,6 +8,7 @@
 #include <cstring>
 #include <algorithm>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -73,6 +74,12 @@ void XiCamera::configure(const CameraSettings& requested_settings)
     gpi_selector_ = static_cast<int>(requested_settings.getOr<int64_t>("ximea.gpi_selector", int64_t{1}));
     trigger_edge_ = requested_settings.getOr<std::string>("ximea.trigger_edge", "rising");
     buffers_queue_size_ = static_cast<int>(requested_settings.getOr<int64_t>("ximea.buffers_queue_size", int64_t{16}));
+    requested_acq_buffer_size_bytes_ =
+        requested_settings.getOr<int64_t>("ximea.acq_buffer_size_bytes", int64_t{0});
+    if (requested_acq_buffer_size_bytes_ < 0 ||
+        requested_acq_buffer_size_bytes_ > static_cast<int64_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("ximea.acq_buffer_size_bytes must be between 0 and INT_MAX");
+    }
     direct_grab_into_enabled_ = requested_settings.getOr<bool>("ximea.direct_grab_into_enabled", false);
     std::transform(trigger_edge_.begin(), trigger_edge_.end(), trigger_edge_.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -88,21 +95,6 @@ void XiCamera::open(int device_index)
 
     std::memset(&image_, 0, sizeof(image_));
     image_.size = sizeof(XI_IMG);
-
-    // Increase xiAPI's internal image queue before acquisition starts. The default
-    // queue is small, which can skip frames if the application is briefly delayed.
-    // This is especially useful for externally triggered 100 Hz rolling capture.
-    if (buffers_queue_size_ > 0) {
-        XI_RETURN qstat = xiSetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, buffers_queue_size_);
-        if (qstat != XI_OK) {
-            std::cout << "[xiapi] warning: could not set buffers_queue_size="
-                      << buffers_queue_size_ << " (xiAPI status " << qstat << ")"
-                      << std::endl;
-        } else {
-            std::cout << "[xiapi] buffers_queue_size requested: "
-                      << buffers_queue_size_ << std::endl;
-        }
-    }
 
     // This must be enabled only for the experimental direct grab-into-RAM path.
     // In XI_BP_SAFE mode xiGetImage() copies into the application-provided XI_IMG.bp.
@@ -160,6 +152,35 @@ void XiCamera::open(int device_index)
         // Explicitly leave the camera in free-run mode when hardware triggering is disabled.
         // Some cameras retain trigger settings across sessions/context unless reset.
         xiSetParamInt(handle_, XI_PRM_TRG_SOURCE, XI_TRG_OFF);
+    }
+
+    // XI_PRM_ACQ_BUFFER_SIZE invalidates XI_PRM_BUFFERS_QUEUE_SIZE according to
+    // xiAPI. Therefore configure the byte-addressed circular acquisition buffer
+    // first, then the image-count FIFO queue, while acquisition is still stopped.
+    if (requested_acq_buffer_size_bytes_ > 0) {
+        // Make the configuration key's "_bytes" contract explicit instead of
+        // relying on xiAPI's documented default unit of 1 byte.
+        xiCheck(
+            xiSetParamInt(handle_, XI_PRM_ACQ_BUFFER_SIZE_UNIT, 1),
+            "xiSetParamInt ACQ_BUFFER_SIZE_UNIT");
+        xiCheck(
+            xiSetParamInt(handle_, XI_PRM_ACQ_BUFFER_SIZE,
+                          static_cast<int>(requested_acq_buffer_size_bytes_)),
+            "xiSetParamInt ACQ_BUFFER_SIZE");
+        std::cout << "[xiapi] acq_buffer_size requested: "
+                  << requested_acq_buffer_size_bytes_ << " bytes (unit=1)" << std::endl;
+    }
+
+    if (buffers_queue_size_ > 0) {
+        XI_RETURN qstat = xiSetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, buffers_queue_size_);
+        if (qstat != XI_OK) {
+            std::cout << "[xiapi] warning: could not set buffers_queue_size="
+                      << buffers_queue_size_ << " (xiAPI status " << qstat << ")"
+                      << std::endl;
+        } else {
+            std::cout << "[xiapi] buffers_queue_size requested: "
+                      << buffers_queue_size_ << std::endl;
+        }
     }
 
     xiGetParamInt(handle_, XI_PRM_WIDTH, &width_);
@@ -229,6 +250,8 @@ void XiCamera::open(int device_index)
     effective_settings_.set("camera.hardware_trigger", hardware_trigger_);
     effective_settings_.set("ximea.gpi_selector", int64_t{gpi_selector_});
     effective_settings_.set("ximea.trigger_edge", trigger_edge_);
+    effective_settings_.set("ximea.acq_buffer_size_bytes_requested",
+                            int64_t{requested_acq_buffer_size_bytes_});
     effective_settings_.set("ximea.buffers_queue_size", int64_t{buffers_queue_size_});
     effective_settings_.set("ximea.acq_buffer_size_value_actual", int64_t{acq_buffer_size_value_});
     effective_settings_.set("ximea.acq_buffer_size_unit_actual", int64_t{acq_buffer_size_unit_});

@@ -51,6 +51,7 @@ private:
     int gpi_selector_{1};
     std::string trigger_edge_{"rising"};
     int buffers_queue_size_{16};
+    int64_t requested_acq_buffer_size_bytes_{0};
     int64_t acq_buffer_size_value_{-1};
     int64_t acq_buffer_size_unit_{1};
     int64_t acq_buffer_size_bytes_{-1};

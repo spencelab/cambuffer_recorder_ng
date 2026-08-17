@@ -153,6 +153,9 @@ void SettingsManager::declareParameters()
     // Override ximea.gpi_selector if your camera/API reports a different selector.
     declare_int("ximea.gpi_selector", 1);
     declare_string("ximea.trigger_edge", "rising");
+    // xiAPI acquisition circular buffer size in bytes. Zero preserves xiAPI's
+    // default/current allocation and is useful for diagnostic-only A/B testing.
+    declare_int64("ximea.acq_buffer_size_bytes", 0);
     // xiAPI internal frame-buffer queue. Default xiAPI queue is small; 16 gives
     // roughly 150 ms of cushion at 100 Hz for externally triggered capture.
     // Set <=0 to skip setting it explicitly.
@@ -458,6 +461,11 @@ CameraSettings SettingsManager::readRosOverrides()
     set_string_if_nonempty("cti_path", "cti_path");
     s.set("ximea.gpi_selector", int64_t{node_.get_parameter("ximea.gpi_selector").as_int()});
     set_string_if_nonempty("ximea.trigger_edge", "ximea.trigger_edge");
+    const int64_t acq_buffer_size_bytes =
+        node_.get_parameter("ximea.acq_buffer_size_bytes").as_int();
+    if (acq_buffer_size_bytes > 0) {
+        s.set("ximea.acq_buffer_size_bytes", acq_buffer_size_bytes);
+    }
     set_int_if_positive("ximea.buffers_queue_size", "ximea.buffers_queue_size");
     s.set("ximea.direct_grab_into_enabled",
           node_.get_parameter("ximea.direct_grab_into_enabled").as_bool());
