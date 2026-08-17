@@ -19,7 +19,11 @@
     camera.fps_report_interval_s: 5.0
     ximea.gpi_selector: 1
     ximea.trigger_edge: "rising"
-    ximea.buffers_queue_size: 16
+    # RAM-buffer mode still depends on xiAPI to absorb short scheduling/host stalls
+    # before frames are copied into the application ring. At 250 Hz, queue 384
+    # provides ~1.53 s of FIFO cushion; the 1500-frame application ring is separate.
+    ximea.acq_buffer_size_bytes: 805306368  # 768 MiB
+    ximea.buffers_queue_size: 384
     ximea.direct_grab_into_enabled: true
 
     output.dir: "/home/spencelab/camera_sessions"

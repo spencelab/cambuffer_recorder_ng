@@ -11,6 +11,21 @@
 
 namespace cambuffer_recorder_ng {
 
+struct CameraAcquisitionDiagnostics {
+    bool available{false};
+    int64_t acq_buffer_size_value{-1};
+    int64_t acq_buffer_size_unit{-1};
+    int64_t acq_buffer_size_bytes{-1};
+    int64_t buffers_queue_size{-1};
+    int64_t buffers_queue_size_min{-1};
+    int64_t buffers_queue_size_max{-1};
+    int64_t buffers_queue_size_increment{-1};
+    int64_t buffer_policy{-1};
+    int64_t api_skipped_frames{-1};
+    int64_t transport_skipped_frames{-1};
+    int64_t transport_transferred_frames{-1};
+};
+
 class ICamera {
 public:
     virtual ~ICamera() = default;
@@ -82,6 +97,10 @@ public:
     // Optional backend-provided frame/sequence number for the most recent successful grab().
     // XIMEA provides this as XI_IMG.nframe. Return 0 when unavailable.
     virtual uint64_t lastCameraFrameNumber() const { return 0; }
+
+    // Backend-specific acquisition diagnostics. Call after acquisition stops when
+    // possible so counters represent the completed run. Unsupported fields remain -1.
+    virtual CameraAcquisitionDiagnostics acquisitionDiagnostics() { return {}; }
 
 protected:
     CameraSettings requested_settings_;
