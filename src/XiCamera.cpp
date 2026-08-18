@@ -171,6 +171,40 @@ void XiCamera::open(int device_index)
                   << requested_acq_buffer_size_bytes_ << " bytes (unit=1)" << std::endl;
     }
 
+    // Ask xiAPI for the queue limits in the fully configured camera state.
+    // Parameter modifiers are queried by concatenating them to the base parameter
+    // name, e.g. XI_PRM_BUFFERS_QUEUE_SIZE XI_PRM_INFO_MAX.  Keep this
+    // diagnostic non-fatal because older cameras/API versions may not expose every
+    // modifier even when the base parameter itself is available.
+    int queue_current = 0;
+    int queue_min = 0;
+    int queue_max = 0;
+    int queue_increment = 0;
+    const XI_RETURN qcur_stat =
+        xiGetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, &queue_current);
+    const XI_RETURN qmin_stat =
+        xiGetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE XI_PRM_INFO_MIN, &queue_min);
+    const XI_RETURN qmax_stat =
+        xiGetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE XI_PRM_INFO_MAX, &queue_max);
+    const XI_RETURN qinc_stat =
+        xiGetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE XI_PRM_INFO_INCREMENT, &queue_increment);
+
+    if (qcur_stat == XI_OK && qmin_stat == XI_OK && qmax_stat == XI_OK && qinc_stat == XI_OK) {
+        std::cout << "[xiapi] buffers_queue_size range before requested set:"
+                  << " current=" << queue_current
+                  << " min=" << queue_min
+                  << " max=" << queue_max
+                  << " increment=" << queue_increment
+                  << std::endl;
+    } else {
+        std::cout << "[xiapi] warning: buffers_queue_size range query incomplete:"
+                  << " current=" << queue_current << "(status=" << qcur_stat << ")"
+                  << " min=" << queue_min << "(status=" << qmin_stat << ")"
+                  << " max=" << queue_max << "(status=" << qmax_stat << ")"
+                  << " increment=" << queue_increment << "(status=" << qinc_stat << ")"
+                  << std::endl;
+    }
+
     if (buffers_queue_size_ > 0) {
         XI_RETURN qstat = xiSetParamInt(handle_, XI_PRM_BUFFERS_QUEUE_SIZE, buffers_queue_size_);
         if (qstat != XI_OK) {

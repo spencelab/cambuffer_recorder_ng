@@ -25,7 +25,7 @@ cam1:
     # circular image store; it must be configured before BUFFERS_QUEUE_SIZE because
     # xiAPI documents ACQ_BUFFER_SIZE as invalidating the queue-size setting.
     ximea.acq_buffer_size_bytes: 805306368  # 768 MiB
-    ximea.buffers_queue_size: 512
+    ximea.buffers_queue_size: 384
 
     output.dir: "/tmp"
     output.prefix: "ximea_hwtrig_raw8bayerGBRG_rolling"
