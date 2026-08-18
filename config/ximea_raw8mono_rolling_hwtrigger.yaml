@@ -21,7 +21,9 @@ cambuffer_recorder_ng:
     # XiCamTool may label the first physical input GPI 0 even when xiAPI selector is 1.
     ximea.gpi_selector: 1
     ximea.trigger_edge: "rising"
-    ximea.buffers_queue_size: 256
+    # Same validated XIMEA buffering as Bayer rolling mode.
+    ximea.acq_buffer_size_bytes: 805306368  # 768 MiB
+    ximea.buffers_queue_size: 384
 
     output.dir: "/tmp"
     output.prefix: "ximea_hwtrig_raw8mono_rolling"

@@ -14,6 +14,22 @@
 namespace cambuffer_recorder_ng
 {
 
+struct RollingAcquisitionDiagnostics
+{
+    uint64_t frames_written{0};
+    uint64_t camera_frame_gaps{0};
+    uint64_t camera_frame_nonmonotonic{0};
+    double max_write_frame_ms{0.0};
+    uint64_t writes_over_10ms{0};
+    uint64_t writes_over_50ms{0};
+    uint64_t writes_over_100ms{0};
+    uint64_t writes_over_500ms{0};
+    int worker_sched_policy{-1};
+    int worker_sched_priority{-1};
+    int64_t rlimit_rtprio_soft{-1};
+    int64_t rlimit_rtprio_hard{-1};
+};
+
 class RollingRawRecorder
 {
 public:
@@ -35,6 +51,7 @@ public:
 
     uint64_t framesWritten() const { return frames_written_; }
     const std::vector<std::string>& filesWritten() const { return writer_.filesWritten(); }
+    RollingAcquisitionDiagnostics diagnostics() const { return diagnostics_; }
 
 private:
     void loop();
@@ -62,6 +79,7 @@ private:
     double fps_report_interval_s_{5.0};
     EventCallback event_callback_;
     RolloverCallback rollover_callback_;
+    RollingAcquisitionDiagnostics diagnostics_;
 };
 
 }  // namespace cambuffer_recorder_ng

@@ -98,6 +98,8 @@ bool RamCircularRawRecorder::start(std::shared_ptr<ICamera> camera,
     write_slot_ = 0;
     frames_captured_ = 0;
     dropped_frames_ = 0;
+    camera_frame_gaps_ = 0;
+    camera_frame_nonmonotonic_ = 0;
 
     ring_.clear();
     ring_.resize(capacity_frames_);
@@ -234,6 +236,7 @@ void RamCircularRawRecorder::loop()
     auto last_fps_report = std::chrono::steady_clock::now();
     uint64_t frames_at_last_report = 0;
     bool waiting_reported = false;
+    uint64_t previous_camera_frame_number = 0;
 
     while (running_) {
         {
@@ -335,13 +338,23 @@ void RamCircularRawRecorder::loop()
             break;
         }
 
+        const uint64_t camera_frame_number = camera_->lastCameraFrameNumber();
+        if (camera_frame_number > 0 && previous_camera_frame_number > 0) {
+            if (camera_frame_number > previous_camera_frame_number + 1) {
+                camera_frame_gaps_ += camera_frame_number - previous_camera_frame_number - 1;
+            } else if (camera_frame_number <= previous_camera_frame_number) {
+                ++camera_frame_nonmonotonic_;
+            }
+        }
+        if (camera_frame_number > 0) previous_camera_frame_number = camera_frame_number;
+
         {
             std::lock_guard<std::mutex> lock(mutex_);
             slot.valid = true;
             slot.frame_index = frames_captured_.load();
             slot.pc_utc_ns = utc_ns_after_grab;
             slot.camera_timestamp_ns = camera_ts;
-            slot.camera_frame_number = camera_->lastCameraFrameNumber();
+            slot.camera_frame_number = camera_frame_number;
             slot.payload_bytes = static_cast<uint32_t>(wanted_payload);
             slot.source_stride_bytes = static_cast<uint32_t>(stride);
 

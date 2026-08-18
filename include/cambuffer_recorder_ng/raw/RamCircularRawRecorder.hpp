@@ -88,6 +88,8 @@ public:
 
     uint64_t framesCaptured() const { return frames_captured_.load(); }
     uint64_t droppedFrames() const { return dropped_frames_.load(); }
+    uint64_t cameraFrameGaps() const { return camera_frame_gaps_.load(); }
+    uint64_t cameraFrameNonmonotonic() const { return camera_frame_nonmonotonic_.load(); }
     uint32_t capacityFrames() const { return capacity_frames_; }
 
 private:
@@ -165,6 +167,8 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<uint64_t> frames_captured_{0};
     std::atomic<uint64_t> dropped_frames_{0};
+    std::atomic<uint64_t> camera_frame_gaps_{0};
+    std::atomic<uint64_t> camera_frame_nonmonotonic_{0};
 
     mutable std::mutex mutex_;
     std::condition_variable cv_;

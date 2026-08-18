@@ -1049,3 +1049,32 @@ grab=5.58197ms overlay=0.952166ms encode=1.27955ms total=7.81368ms → 127.981 F
 Elapsed real time: 46.4145 s
 ```
 
+
+
+## XIMEA acquisition buffering and loss diagnostics
+
+For the production MQ022CG-CM hardware-triggered RAW8 modes, configure both xiAPI
+buffer dimensions explicitly:
+
+```yaml
+ximea.acq_buffer_size_bytes: 805306368  # 768 MiB
+ximea.buffers_queue_size: 384
+```
+
+`ACQ_BUFFER_SIZE` is applied before `BUFFERS_QUEUE_SIZE`; xiAPI documents the
+former as invalidating the latter.  The node then queries the queue min/max/
+increment, sets the requested queue, and verifies both readbacks. A rejected
+production buffer setting is a configuration error, not a warning, so the node
+cannot silently fall back to xiAPI's small default queue.
+
+On the lab MQ022CG-CM test camera with xiAPI 4.33.24, 768 MiB reported a legal
+queue range of 3..384 (increment 1). At 2048x700 RAW8, queue 384 corresponds to
+about 3.83 s of queued-image cushion at 100 Hz and 1.53 s at 250 Hz.
+
+At stop, XIMEA runs report `XI_CNT_SEL_API_SKIPPED_FRAMES`,
+`XI_CNT_SEL_TRANSPORT_SKIPPED_FRAMES`, and
+`XI_CNT_SEL_TRANSPORT_TRANSFERRED_FRAMES`. Rolling mode additionally reports
+camera-frame-number gaps, maximum synchronous `writeFrame()` latency, counts of
+writes above 10/50/100/500 ms, and recorder-thread scheduler/rtprio state. RAM
+buffer mode reports captured frames and camera-frame-number gaps. These values
+are also written into the final metadata sidecar under `acquisition_diagnostics`.

@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <sstream>
+#include <sched.h>
 #include <stdexcept>
 #include <system_error>
 #include <vector>
@@ -50,6 +51,22 @@ std::string builtBackendSummary()
     backends.emplace_back("gentl");
 #endif
     return joinStrings(backends, ", ");
+}
+
+std::string schedulerPolicyName(int policy)
+{
+    switch (policy) {
+        case SCHED_FIFO: return "SCHED_FIFO";
+        case SCHED_RR: return "SCHED_RR";
+        case SCHED_OTHER: return "SCHED_OTHER";
+#ifdef SCHED_BATCH
+        case SCHED_BATCH: return "SCHED_BATCH";
+#endif
+#ifdef SCHED_IDLE
+        case SCHED_IDLE: return "SCHED_IDLE";
+#endif
+        default: return "unknown";
+    }
 }
 
 std::string joinPath(const std::string& dir, const std::string& name)
@@ -549,19 +566,150 @@ bool CamBufferRecorderNode::stopRecording(std::string& message)
     running_ = false;
     if (worker_.joinable()) worker_.join();
 
+    RollingAcquisitionDiagnostics rolling_diagnostics;
+    bool have_rolling_diagnostics = false;
+    bool have_ram_diagnostics = false;
+    uint64_t ram_frames_captured = 0;
+    uint64_t ram_camera_frame_gaps = 0;
+    uint64_t ram_camera_frame_nonmonotonic = 0;
+
     if (rolling_raw_recorder_) {
         rolling_raw_recorder_->stop();
-        rolling_raw_recorder_.reset();
+        rolling_diagnostics = rolling_raw_recorder_->diagnostics();
+        have_rolling_diagnostics = true;
     }
     if (ram_raw_recorder_) {
         ram_raw_recorder_->stop();
-        ram_raw_recorder_.reset();
+        ram_frames_captured = ram_raw_recorder_->framesCaptured();
+        ram_camera_frame_gaps = ram_raw_recorder_->cameraFrameGaps();
+        ram_camera_frame_nonmonotonic = ram_raw_recorder_->cameraFrameNonmonotonic();
+        have_ram_diagnostics = true;
     }
     if (recorder_) {
         recorder_->stop();
-        recorder_.reset();
     }
+
+    // xiAPI's documented performance counters are intended to be read after the
+    // acquisition has stopped. Keep the camera handle open until after readback.
     if (camera_) camera_->stop();
+    const CameraAcquisitionDiagnostics camera_diagnostics =
+        camera_ ? camera_->acquisitionDiagnostics() : CameraAcquisitionDiagnostics{};
+
+    if (have_rolling_diagnostics) {
+        effective_settings_.set("acquisition_diagnostics.frames_written",
+                                static_cast<int64_t>(rolling_diagnostics.frames_written));
+        effective_settings_.set("acquisition_diagnostics.camera_frame_gaps",
+                                static_cast<int64_t>(rolling_diagnostics.camera_frame_gaps));
+        effective_settings_.set("acquisition_diagnostics.camera_frame_nonmonotonic",
+                                static_cast<int64_t>(rolling_diagnostics.camera_frame_nonmonotonic));
+        effective_settings_.set("acquisition_diagnostics.max_write_frame_ms",
+                                rolling_diagnostics.max_write_frame_ms);
+        effective_settings_.set("acquisition_diagnostics.writes_over_10ms",
+                                static_cast<int64_t>(rolling_diagnostics.writes_over_10ms));
+        effective_settings_.set("acquisition_diagnostics.writes_over_50ms",
+                                static_cast<int64_t>(rolling_diagnostics.writes_over_50ms));
+        effective_settings_.set("acquisition_diagnostics.writes_over_100ms",
+                                static_cast<int64_t>(rolling_diagnostics.writes_over_100ms));
+        effective_settings_.set("acquisition_diagnostics.writes_over_500ms",
+                                static_cast<int64_t>(rolling_diagnostics.writes_over_500ms));
+        effective_settings_.set("acquisition_diagnostics.worker_sched_policy",
+                                int64_t{rolling_diagnostics.worker_sched_policy});
+        effective_settings_.set("acquisition_diagnostics.worker_sched_policy_name",
+                                schedulerPolicyName(rolling_diagnostics.worker_sched_policy));
+        effective_settings_.set("acquisition_diagnostics.worker_sched_priority",
+                                int64_t{rolling_diagnostics.worker_sched_priority});
+        effective_settings_.set("acquisition_diagnostics.rlimit_rtprio_soft",
+                                int64_t{rolling_diagnostics.rlimit_rtprio_soft});
+        effective_settings_.set("acquisition_diagnostics.rlimit_rtprio_hard",
+                                int64_t{rolling_diagnostics.rlimit_rtprio_hard});
+    }
+
+    if (have_ram_diagnostics) {
+        effective_settings_.set("acquisition_diagnostics.ram_frames_captured",
+                                static_cast<int64_t>(ram_frames_captured));
+        effective_settings_.set("acquisition_diagnostics.ram_camera_frame_gaps",
+                                static_cast<int64_t>(ram_camera_frame_gaps));
+        effective_settings_.set("acquisition_diagnostics.ram_camera_frame_nonmonotonic",
+                                static_cast<int64_t>(ram_camera_frame_nonmonotonic));
+        // Generic camera-frame gap fields are useful to downstream log parsers
+        // regardless of whether the run used rolling or RAM-buffer mode.
+        effective_settings_.set("acquisition_diagnostics.camera_frame_gaps",
+                                static_cast<int64_t>(ram_camera_frame_gaps));
+        effective_settings_.set("acquisition_diagnostics.camera_frame_nonmonotonic",
+                                static_cast<int64_t>(ram_camera_frame_nonmonotonic));
+    }
+
+    if (camera_diagnostics.available) {
+        effective_settings_.set("acquisition_diagnostics.ximea_acq_buffer_size_value",
+                                int64_t{camera_diagnostics.acq_buffer_size_value});
+        effective_settings_.set("acquisition_diagnostics.ximea_acq_buffer_size_unit",
+                                int64_t{camera_diagnostics.acq_buffer_size_unit});
+        effective_settings_.set("acquisition_diagnostics.ximea_acq_buffer_size_bytes",
+                                int64_t{camera_diagnostics.acq_buffer_size_bytes});
+        effective_settings_.set("acquisition_diagnostics.ximea_buffers_queue_size",
+                                int64_t{camera_diagnostics.buffers_queue_size});
+        effective_settings_.set("acquisition_diagnostics.ximea_buffers_queue_size_min",
+                                int64_t{camera_diagnostics.buffers_queue_size_min});
+        effective_settings_.set("acquisition_diagnostics.ximea_buffers_queue_size_max",
+                                int64_t{camera_diagnostics.buffers_queue_size_max});
+        effective_settings_.set("acquisition_diagnostics.ximea_buffers_queue_size_increment",
+                                int64_t{camera_diagnostics.buffers_queue_size_increment});
+        effective_settings_.set("acquisition_diagnostics.ximea_buffer_policy",
+                                int64_t{camera_diagnostics.buffer_policy});
+        effective_settings_.set("acquisition_diagnostics.ximea_api_skipped_frames",
+                                int64_t{camera_diagnostics.api_skipped_frames});
+        effective_settings_.set("acquisition_diagnostics.ximea_transport_skipped_frames",
+                                int64_t{camera_diagnostics.transport_skipped_frames});
+        effective_settings_.set("acquisition_diagnostics.ximea_transport_transferred_frames",
+                                int64_t{camera_diagnostics.transport_transferred_frames});
+    }
+
+    if (have_rolling_diagnostics || have_ram_diagnostics || camera_diagnostics.available) {
+        const uint64_t reported_frame_gaps = have_rolling_diagnostics
+            ? rolling_diagnostics.camera_frame_gaps
+            : (have_ram_diagnostics ? ram_camera_frame_gaps : 0);
+        RCLCPP_INFO(
+            get_logger(),
+            "ACQUISITION_DIAGNOSTICS frames_written=%ld ram_frames_captured=%ld camera_frame_gaps=%ld "
+            "max_write_frame_ms=%.3f writes_gt_10ms=%ld writes_gt_50ms=%ld "
+            "writes_gt_100ms=%ld writes_gt_500ms=%ld worker_policy=%s worker_priority=%d "
+            "rtprio_soft=%ld rtprio_hard=%ld ximea_acq_buffer_bytes=%ld ximea_queue=%ld "
+            "ximea_queue_max=%ld ximea_api_skipped=%ld ximea_transport_skipped=%ld "
+            "ximea_transport_transferred=%ld",
+            static_cast<long>(rolling_diagnostics.frames_written),
+            static_cast<long>(ram_frames_captured),
+            static_cast<long>(reported_frame_gaps),
+            rolling_diagnostics.max_write_frame_ms,
+            static_cast<long>(rolling_diagnostics.writes_over_10ms),
+            static_cast<long>(rolling_diagnostics.writes_over_50ms),
+            static_cast<long>(rolling_diagnostics.writes_over_100ms),
+            static_cast<long>(rolling_diagnostics.writes_over_500ms),
+            schedulerPolicyName(rolling_diagnostics.worker_sched_policy).c_str(),
+            rolling_diagnostics.worker_sched_priority,
+            static_cast<long>(rolling_diagnostics.rlimit_rtprio_soft),
+            static_cast<long>(rolling_diagnostics.rlimit_rtprio_hard),
+            static_cast<long>(camera_diagnostics.acq_buffer_size_bytes),
+            static_cast<long>(camera_diagnostics.buffers_queue_size),
+            static_cast<long>(camera_diagnostics.buffers_queue_size_max),
+            static_cast<long>(camera_diagnostics.api_skipped_frames),
+            static_cast<long>(camera_diagnostics.transport_skipped_frames),
+            static_cast<long>(camera_diagnostics.transport_transferred_frames));
+
+        // Metadata is initially written at start so the run always has a sidecar.
+        // Rewrite it after a clean stop to include end-of-acquisition diagnostics.
+        try {
+            writeTextFile(metadata_path_, buildMetadataYaml(
+                run_id_, backend_, mode_, output_kind_, requested_settings_, effective_settings_));
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(get_logger(),
+                        "Could not update metadata with acquisition diagnostics at stop: %s",
+                        e.what());
+        }
+    }
+
+    rolling_raw_recorder_.reset();
+    ram_raw_recorder_.reset();
+    recorder_.reset();
 
     if (recording_) {
         message = "Camera deactivated and recording stopped.";
