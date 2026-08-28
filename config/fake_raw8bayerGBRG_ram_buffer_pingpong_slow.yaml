@@ -3,8 +3,14 @@ cambuffer_recorder_ng:
     backend: "fake"
     mode: "raw8bayerGBRG_ram_buffer"
 
-    camera.width: 320
-    camera.height: 240
+    # NOT a shipped/production config -- this session's Level 2 timing-test
+    # variant of fake_raw8bayerGBRG_ram_buffer_pingpong.yaml. XIMEA-sized
+    # frames (2048x700) and a smaller ring make both "saving" (bigger drain
+    # write) and "filling" (fewer frames to reach full) observable over
+    # several seconds with plain sequential `ros2 service call` invocations,
+    # which the tiny 320x240/1000-frame default config drains too fast for.
+    camera.width: 2048
+    camera.height: 700
     camera.fps: 250.0
     camera.expected_hardware_fps: 250.0
     camera.pixel_format: "bayer_gbrg8"
@@ -12,7 +18,7 @@ cambuffer_recorder_ng:
     fake.realtime_pacing: "false"
 
     output.dir: "/tmp"
-    output.prefix: "fake_raw8bayerGBRG_ram_buffer"
+    output.prefix: "fake_raw8bayerGBRG_ram_buffer_pingpong_slow"
 
     pipeline.white_balance.enabled: true
     pipeline.white_balance.r_gain: 1.23
@@ -22,18 +28,12 @@ cambuffer_recorder_ng:
     rolling.max_file_gib: 2.0
     rolling.pack_rows: true
 
-    # RAM dumps can afford CRC because acquisition is paused while writing.
-    # Direct rolling defaults CRC off unless explicitly enabled.
     raw.payload_crc32_enabled: true
 
-    ram_buffer.capacity_frames: 1000
-    ram_buffer.dump_policy: "pause_acquisition"
-    # Lab naming: post_trigger means the event already happened, so dump the
-    # previous window ending at the software trigger/request.
-    # Other options: "mid_trigger" and "pre_trigger".
+    ram_buffer.capacity_frames: 250
+    ram_buffer.dump_policy: "continue_acquisition"
     ram_buffer.default_trigger_position: "post_trigger"
     ram_buffer.default_window_s: 4.0
-    # Set nonzero to request an exact frame count instead of deriving from seconds.
     ram_buffer.default_window_frames: 0
     ram_buffer.allow_partial_default: false
     ram_buffer.dump_wait_timeout_s: 30.0

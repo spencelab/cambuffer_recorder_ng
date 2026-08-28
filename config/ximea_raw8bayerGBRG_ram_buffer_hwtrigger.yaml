@@ -41,7 +41,7 @@
     # Direct rolling defaults CRC off unless explicitly enabled.
     raw.payload_crc32_enabled: false
 
-    ram_buffer.capacity_frames: 1500
+    ram_buffer.capacity_frames: 1000
     ram_buffer.dump_policy: "pause_acquisition"
     # Lab naming: post_trigger means the event already happened, so dump the
     # previous window ending at the software trigger/request.

@@ -12,3 +12,8 @@ string metadata_path
 string rolling_path_prefix
 string requested_settings_yaml
 string effective_settings_yaml
+# RAM ping-pong buffer state ("rec"/"saving"/"filling"), only meaningful when
+# ram_buffer.dump_policy=="continue_acquisition". Unset (empty string) for
+# non-RAM recording modes; "rec" for ram_buffer.dump_policy=="pause_acquisition".
+# See cambuffer_recorder_ng/PINGPONG_BUFFER_PLAN.md section 4.
+string ram_buffer_state

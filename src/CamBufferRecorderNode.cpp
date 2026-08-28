@@ -867,6 +867,7 @@ void CamBufferRecorderNode::handleGetStatus(
     response->rolling_path_prefix = rolling_path_prefix_;
     response->requested_settings_yaml = cameraSettingsToYaml(requested_settings_, "  ");
     response->effective_settings_yaml = cameraSettingsToYaml(effective_settings_, "  ");
+    response->ram_buffer_state = ram_raw_recorder_ ? ram_raw_recorder_->ramBufferState() : "";
 }
 
 void CamBufferRecorderNode::handleDumpBuffer(

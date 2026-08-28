@@ -7,6 +7,13 @@
 #include <sstream>
 #include <thread>
 
+#ifdef __linux__
+#include <cerrno>
+#include <pthread.h>
+#include <sched.h>
+#include <unistd.h>
+#endif
+
 namespace cambuffer_recorder_ng
 {
 
@@ -81,11 +88,12 @@ bool RamCircularRawRecorder::start(std::shared_ptr<ICamera> camera,
     dump_policy_ = canonicalDumpPolicy(settings_.getOr<std::string>("ram_buffer.dump_policy", "pause_acquisition"));
     dump_wait_timeout_s_ = settings_.getOr<double>("ram_buffer.dump_wait_timeout_s", 30.0);
 
-    if (dump_policy_ != "pause_acquisition") {
+    if (dump_policy_ != "pause_acquisition" && dump_policy_ != "continue_acquisition") {
         emitEvent("ram_buffer_config_failed", false,
-                  "ram_buffer.dump_policy='" + dump_policy_ + "' requested, but this build currently supports only pause_acquisition.");
+                  "ram_buffer.dump_policy='" + dump_policy_ + "' requested; supported values are pause_acquisition and continue_acquisition.");
         return false;
     }
+    ping_pong_ = (dump_policy_ == "continue_acquisition");
 
     roll_bytes_ = static_cast<uint64_t>(settings_.getOr<int64_t>("rolling.max_file_bytes", int64_t{0}));
     if (roll_bytes_ == 0) {
@@ -101,11 +109,19 @@ bool RamCircularRawRecorder::start(std::shared_ptr<ICamera> camera,
     camera_frame_gaps_ = 0;
     camera_frame_nonmonotonic_ = 0;
 
-    ring_.clear();
-    ring_.resize(capacity_frames_);
-    for (auto& slot : ring_) {
+    rings_[0].clear();
+    rings_[0].resize(capacity_frames_);
+    for (auto& slot : rings_[0]) {
         slot.data.assign(payload_bytes_, 0);
         slot.valid = false;
+    }
+    rings_[1].clear();
+    if (ping_pong_) {
+        rings_[1].resize(capacity_frames_);
+        for (auto& slot : rings_[1]) {
+            slot.data.assign(payload_bytes_, 0);
+            slot.valid = false;
+        }
     }
 
     {
@@ -113,14 +129,25 @@ bool RamCircularRawRecorder::start(std::shared_ptr<ICamera> camera,
         pause_requested_ = false;
         paused_ = false;
         camera_started_ = true;
+        active_ring_ = 0;
+        drain_in_progress_ = false;
+        // The first ring starts "empty", not "full" -- the very first dump
+        // request must wait for a genuine fresh window (filling), same as
+        // every subsequent activation. See plan section 3.
+        active_ring_full_ = !ping_pong_;
+        frames_captured_since_activation_ = 0;
+        swap_requested_ = false;
+        swap_done_ = false;
     }
 
+    const uint32_t ring_count = ping_pong_ ? 2 : 1;
     std::ostringstream oss;
     oss << "RAM circular raw recorder starting: capacity=" << capacity_frames_
-        << " frames, frame_payload=" << payload_bytes_
+        << " frames" << (ping_pong_ ? " per ring (2 rings, ping-pong)" : "")
+        << ", frame_payload=" << payload_bytes_
         << " bytes, approximate RAM="
-        << (static_cast<double>(capacity_frames_) * static_cast<double>(payload_bytes_) /
-            (1024.0 * 1024.0 * 1024.0))
+        << (static_cast<double>(ring_count) * static_cast<double>(capacity_frames_) *
+            static_cast<double>(payload_bytes_) / (1024.0 * 1024.0 * 1024.0))
         << " GiB, dump_policy=" << dump_policy_;
     emitEvent("ram_buffer_starting", true, oss.str());
 
@@ -136,9 +163,18 @@ void RamCircularRawRecorder::stop()
         running_ = false;
         pause_requested_ = false;
         paused_ = false;
+        swap_requested_ = false;
     }
     cv_.notify_all();
     if (worker_.joinable()) worker_.join();
+
+    // Let an in-flight background drain finish writing and close its file
+    // rather than abandoning it mid-write. runDrain() itself checks running_
+    // between frames and stops early (producing a valid partial file) once
+    // running_ is false, so this join is bounded to roughly one frame's
+    // write time, not the full remaining drain.
+    std::lock_guard<std::mutex> drain_lock(drain_mutex_);
+    if (drain_thread_.joinable()) drain_thread_.join();
 }
 
 bool RamCircularRawRecorder::validateAndConfigureRawMode(std::string& error)
@@ -248,6 +284,32 @@ void RamCircularRawRecorder::loop()
                 paused_ = false;
                 cv_.notify_all();
             }
+            // Ring swap handshake for continue_acquisition dumps (plan section 3).
+            // This is the only place a swap happens: right here, between two
+            // grabs, so the ring being frozen never has a write in flight when
+            // the background drain thread starts reading it. No I/O happens in
+            // this block -- just index/counter bookkeeping -- so it resolves in
+            // well under a frame period.
+            if (ping_pong_ && swap_requested_) {
+                const uint32_t old_active = active_ring_.load();
+                const uint32_t new_active = 1U - old_active;
+                const uint64_t total_captured = frames_captured_.load();
+                frozen_ring_after_swap_ = old_active;
+                frozen_ring_first_frame_index_ =
+                    (total_captured >= capacity_frames_) ? (total_captured - capacity_frames_) : 0ULL;
+                frozen_ring_last_frame_index_ =
+                    (total_captured > 0) ? (total_captured - 1) : 0ULL;
+
+                active_ring_.store(new_active);
+                write_slot_ = 0;
+                frames_captured_since_activation_ = 0;
+                active_ring_full_ = false;
+                drain_in_progress_ = true;
+
+                swap_requested_ = false;
+                swap_done_ = true;
+                cv_.notify_all();
+            }
         }
         if (!running_) break;
 
@@ -261,18 +323,26 @@ void RamCircularRawRecorder::loop()
         }
 
         uint32_t slot_index = 0;
+        uint32_t ring_idx = 0;
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            ring_idx = ping_pong_ ? active_ring_.load() : 0U;
             slot_index = write_slot_;
             // Mark the destination slot invalid before allowing the backend to
             // write into it. This prevents a concurrent dump from reading a
             // partially overwritten old frame. The ring has spare capacity for
             // the production window, so invalidating one soon-to-be-overwritten
             // slot is preferable to holding the mutex during xiGetImage().
-            ring_[slot_index].valid = false;
+            rings_[ring_idx][slot_index].valid = false;
         }
 
-        FrameSlot& slot = ring_[slot_index];
+        // Bound to the ring/slot chosen above for the duration of this grab. If
+        // a swap happens to land between here and the commit below, ring_idx
+        // still names the ring this in-flight frame belongs to -- the swap
+        // handshake above only ever runs when no grab is in flight, so ring_idx
+        // is exactly the ring that was active_ring_ at that moment, whether or
+        // not it still is by the time the commit runs.
+        FrameSlot& slot = rings_[ring_idx][slot_index];
         camera_ts = 0;
         w = 0;
         h = 0;
@@ -358,8 +428,18 @@ void RamCircularRawRecorder::loop()
             slot.payload_bytes = static_cast<uint32_t>(wanted_payload);
             slot.source_stride_bytes = static_cast<uint32_t>(stride);
 
+            // The swap handshake above only ever fires between iterations, so
+            // ring_idx is still the active ring here -- safe to advance its
+            // write cursor and (for ping-pong) its fresh-frame-since-activation
+            // counter unconditionally.
             write_slot_ = (write_slot_ + 1) % capacity_frames_;
             ++frames_captured_;
+            if (ping_pong_) {
+                ++frames_captured_since_activation_;
+                if (frames_captured_since_activation_ >= capacity_frames_) {
+                    active_ring_full_ = true;
+                }
+            }
         }
         cv_.notify_all();
 
@@ -417,7 +497,9 @@ bool RamCircularRawRecorder::findFrameAtOrBeforeUtc(uint64_t anchor_pc_utc_ns,
     uint64_t earliest_frame = 0;
     uint64_t latest_frame = 0;
 
-    for (const auto& slot : ring_) {
+    // Only meaningful for pause_acquisition, which never swaps -- rings_[0] is
+    // the sole ring in that mode.
+    for (const auto& slot : rings_[0]) {
         if (!slot.valid || slot.payload_bytes == 0 || slot.pc_utc_ns == 0) continue;
 
         if (earliest_pc == 0 || slot.pc_utc_ns < earliest_pc) {
@@ -516,7 +598,8 @@ bool RamCircularRawRecorder::resumeCapture(std::string& message, double& start_m
     return true;
 }
 
-bool RamCircularRawRecorder::snapshotRange(uint64_t first_frame_index,
+bool RamCircularRawRecorder::snapshotRange(std::vector<FrameSlot>& ring,
+                                           uint64_t first_frame_index,
                                            uint64_t last_frame_index,
                                            bool allow_partial,
                                            std::vector<const FrameSlot*>& frames,
@@ -547,7 +630,7 @@ bool RamCircularRawRecorder::snapshotRange(uint64_t first_frame_index,
     frames.reserve(static_cast<size_t>(last_frame_index - first_frame_index + 1));
     for (uint64_t frame_index = first_frame_index; frame_index <= last_frame_index; ++frame_index) {
         bool found = false;
-        for (const auto& slot : ring_) {
+        for (const auto& slot : ring) {
             if (slot.valid && slot.frame_index == frame_index) {
                 frames.push_back(&slot);
                 found = true;
@@ -567,6 +650,10 @@ bool RamCircularRawRecorder::snapshotRange(uint64_t first_frame_index,
 
 RamBufferDumpResult RamCircularRawRecorder::dump(const RamBufferDumpRequest& request)
 {
+    if (ping_pong_) {
+        return dumpContinueAcquisition(request);
+    }
+
     RamBufferDumpResult result;
     result.dump_prefix = request.output_prefix.empty() ? session_path_prefix_ + "_dump" : request.output_prefix;
     result.dropped_frames = dropped_frames_.load();
@@ -662,7 +749,7 @@ RamBufferDumpResult RamCircularRawRecorder::dump(const RamBufferDumpRequest& req
     uint64_t actual_first = 0;
     uint64_t actual_last = 0;
     std::string snapshot_message;
-    bool snapshot_ok = snapshotRange(wanted_first, wanted_last, request.allow_partial,
+    bool snapshot_ok = snapshotRange(rings_[0], wanted_first, wanted_last, request.allow_partial,
                                      frames, snapshot_message, actual_first, actual_last);
 
     bool write_ok = false;
@@ -739,6 +826,218 @@ RamBufferDumpResult RamCircularRawRecorder::dump(const RamBufferDumpRequest& req
     result.message = oss.str();
     emitEvent("ram_buffer_dump_complete", true, result.message);
     return result;
+}
+
+std::string RamCircularRawRecorder::ramBufferState() const
+{
+    if (!ping_pong_) return "rec";
+    if (drain_in_progress_.load()) return "saving";
+    if (!active_ring_full_.load()) return "filling";
+    return "rec";
+}
+
+bool RamCircularRawRecorder::swapRingsForContinueDump(uint32_t& frozen_ring_idx,
+                                                       uint64_t& frozen_first_frame,
+                                                       uint64_t& frozen_last_frame,
+                                                       std::string& message)
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    swap_requested_ = true;
+    swap_done_ = false;
+    cv_.notify_all();
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(100, grab_timeout_ms_ + 250));
+    const bool ok = cv_.wait_until(lock, deadline, [this]() { return !running_ || swap_done_; });
+    if (!running_) {
+        swap_requested_ = false;
+        message = "RAM circular recorder stopped while waiting for ring swap.";
+        return false;
+    }
+    if (!ok || !swap_done_) {
+        swap_requested_ = false;
+        message = "Timed out waiting for capture thread to complete the ring swap.";
+        return false;
+    }
+    frozen_ring_idx = frozen_ring_after_swap_;
+    frozen_first_frame = frozen_ring_first_frame_index_;
+    frozen_last_frame = frozen_ring_last_frame_index_;
+    swap_done_ = false;
+    return true;
+}
+
+RamBufferDumpResult RamCircularRawRecorder::dumpContinueAcquisition(const RamBufferDumpRequest& request)
+{
+    RamBufferDumpResult result;
+    result.dropped_frames = dropped_frames_.load();
+
+    if (!running_) {
+        result.message = "RAM circular recorder is not running.";
+        return result;
+    }
+
+    // Concurrent-dump policy (plan section 5): reject immediately, don't queue.
+    // handleDumpBuffer() runs on cambuffer_recorder_ng's single-threaded ROS
+    // executor (main.cpp), so dump() calls can never overlap with each other --
+    // only against the capture/drain threads, which is what these two flags
+    // report.
+    if (drain_in_progress_.load()) {
+        result.message = "RAM dump rejected: a previous dump is still saving (drain in progress). "
+                          "Wait for the current dump to finish, then try again.";
+        return result;
+    }
+    if (!active_ring_full_.load()) {
+        result.message = "RAM dump rejected: the active ring is still filling -- it has not yet "
+                          "captured a full fresh window since it last became active. Try again shortly.";
+        return result;
+    }
+
+    // continue_acquisition always dumps the entire just-frozen ring (the most
+    // recent capacity_frames_ frames), not an arbitrary trigger_position/
+    // window_s-selected sub-window -- PINGPONG_BUFFER_PLAN.md section 3/6 does
+    // not explicitly re-address window selection for this mode, so this is
+    // this session's interpretation, made to satisfy the plan's own "no frames
+    // predating this ring's activation" and "4 seconds of buffer depth"
+    // framing. Flagged Needs verification in the session report.
+    uint32_t frozen_ring_idx = 0;
+    uint64_t frozen_first = 0;
+    uint64_t frozen_last = 0;
+    std::string swap_message;
+    if (!swapRingsForContinueDump(frozen_ring_idx, frozen_first, frozen_last, swap_message)) {
+        result.message = swap_message;
+        return result;
+    }
+
+    result.dump_prefix = request.output_prefix.empty() ? session_path_prefix_ + "_dump" : request.output_prefix;
+    result.first_frame_index = frozen_first;
+    result.last_frame_index = frozen_last;
+    result.frames_written = frozen_last - frozen_first + 1;
+    result.success = true;
+
+    std::ostringstream oss;
+    oss << "RAM dump accepted (continue_acquisition): saving " << result.frames_written
+        << " frames [" << frozen_first << ", " << frozen_last << "] from ring "
+        << frozen_ring_idx << " to " << result.dump_prefix
+        << "_####.cbrraw in the background; acquisition continues uninterrupted.";
+    result.message = oss.str();
+    emitEvent("ram_buffer_dump_accepted", true, result.message);
+
+    const bool crc_enabled = settings_.getOr<bool>("raw.payload_crc32_enabled", true);
+    {
+        std::lock_guard<std::mutex> drain_lock(drain_mutex_);
+        // Safety net: state machine guarantees the previous drain_thread_ has
+        // already finished (drain_in_progress_ was false above), so this join
+        // is instantaneous -- it just reclaims the thread handle.
+        if (drain_thread_.joinable()) drain_thread_.join();
+        drain_thread_ = std::thread(&RamCircularRawRecorder::runDrain, this,
+                                    frozen_ring_idx, frozen_first, frozen_last,
+                                    result.dump_prefix, crc_enabled);
+    }
+
+    return result;
+}
+
+void RamCircularRawRecorder::runDrain(uint32_t frozen_ring_idx,
+                                      uint64_t first_frame_index,
+                                      uint64_t last_frame_index,
+                                      std::string dump_prefix,
+                                      bool payload_crc32_enabled)
+{
+    lowerDrainThreadPriority();
+
+    const auto t0 = std::chrono::steady_clock::now();
+
+    std::vector<const FrameSlot*> frames;
+    uint64_t actual_first = 0;
+    uint64_t actual_last = 0;
+    std::string snapshot_message;
+    const bool snapshot_ok = snapshotRange(rings_[frozen_ring_idx], first_frame_index, last_frame_index,
+                                           /*allow_partial=*/false, frames, snapshot_message,
+                                           actual_first, actual_last);
+    if (!snapshot_ok) {
+        last_drain_ms_ = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t0).count();
+        drain_in_progress_ = false;
+        emitEvent("ram_buffer_dump_failed", false,
+                  "Background RAM dump snapshot failed: " + snapshot_message);
+        return;
+    }
+
+    RawRollingWriter writer;
+    writer.setRolloverCallback([this](uint32_t next_file_index) {
+        if (!rollover_callback_) return true;
+        return rollover_callback_(next_file_index);
+    });
+
+    RawRollingWriterConfig cfg;
+    cfg.path_prefix = dump_prefix;
+    cfg.roll_bytes = roll_bytes_;
+    cfg.width = width_;
+    cfg.height = height_;
+    cfg.source_stride_bytes = source_stride_bytes_;
+    cfg.pixel_format = raw_pixel_format_;
+    cfg.run_start_utc_ns = run_start_utc_ns_;
+    cfg.payload_crc32_enabled = payload_crc32_enabled;
+
+    bool write_ok = false;
+    std::string write_message;
+    uint64_t frames_written = 0;
+    if (!writer.open(cfg)) {
+        write_message = "Could not open CBRRAW writer for dump prefix '" + dump_prefix + "'.";
+    } else {
+        write_ok = true;
+        for (const auto* frame : frames) {
+            // Stop early rather than block process shutdown (see stop()).
+            // Whatever has already been written stays a valid, closed,
+            // audit-able partial file -- the "Ctrl-C mid-drain" acceptance
+            // criterion in plan section 6.
+            if (!running_) {
+                write_message = "RAM circular recorder stopped mid-drain; finalized a partial dump.";
+                break;
+            }
+            if (!writer.writeFrame(frame->frame_index, frame->pc_utc_ns, frame->camera_timestamp_ns,
+                                   frame->camera_frame_number, frame->data.data(), frame->payload_bytes)) {
+                write_ok = false;
+                write_message = "CBRRAW writeFrame failed during background RAM dump.";
+                break;
+            }
+            ++frames_written;
+        }
+        writer.close();
+    }
+
+    const double drain_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - t0).count();
+    last_drain_ms_ = drain_ms;
+
+    // Clear drain_in_progress_ only once the file is fully closed -- GetStatus
+    // reporting "rec"/"filling" should mean the previous dump's file is
+    // already safely on disk, not merely "expected to finish soon".
+    drain_in_progress_ = false;
+
+    std::ostringstream oss;
+    oss << "Background RAM dump complete: wrote " << frames_written << "/" << frames.size()
+        << " frames [" << actual_first << ", " << actual_last << "] to " << dump_prefix
+        << "_####.cbrraw in " << drain_ms << " ms.";
+    if (!write_message.empty()) oss << " (" << write_message << ")";
+    emitEvent("ram_buffer_dump_complete", write_ok, oss.str());
+}
+
+void RamCircularRawRecorder::lowerDrainThreadPriority()
+{
+#ifdef __linux__
+    // Plan section 6 (Level 3): under any contention, the OS should always
+    // favor the realtime capture thread over the background drain write.
+    // Capture in this package does not currently request a realtime
+    // scheduling policy (grabPackedInto() runs on plain SCHED_OTHER too), so
+    // this is largely a no-op today beyond the nice() bump -- it is here so
+    // the drain thread still does the right thing if capture priority is ever
+    // raised to a realtime policy.
+    sched_param sp{};
+    sp.sched_priority = 0;
+    pthread_setschedparam(pthread_self(), SCHED_OTHER, &sp);
+    errno = 0;
+    nice(5);  // best-effort; failure just leaves the process's default niceness
+#endif
 }
 
 void RamCircularRawRecorder::emitEvent(const std::string& event_type, bool success, const std::string& message)
