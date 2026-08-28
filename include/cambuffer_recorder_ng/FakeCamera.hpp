@@ -70,6 +70,17 @@ private:
     int stride_bytes_{640 * 3};
     bool realtime_pacing_{true};
 
+    // Test-only fault injection: fake.fail_grab_every_n_attempts (>=1) makes
+    // every Nth grab() attempt fail (return false without producing a frame),
+    // simulating a real hardware-trigger grab timeout. 0 (default) disables
+    // this and preserves prior behavior for every existing config. Not meant
+    // for production configs -- added to reproduce, in software, the exact
+    // grab-timeout-adjacent race that broke continue_acquisition RAM dumps on
+    // real XIMEA hardware (see RamCircularRawRecorder.cpp's slot_had_valid_frame
+    // handling and PINGPONG_GUI_PLAN.md session notes, 2026-08-28).
+    int64_t fail_grab_every_n_attempts_{0};
+    uint64_t grab_attempt_counter_{0};
+
     std::atomic<bool> opened_{false};
     std::atomic<bool> running_{false};
 

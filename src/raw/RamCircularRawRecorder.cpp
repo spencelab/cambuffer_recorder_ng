@@ -324,6 +324,7 @@ void RamCircularRawRecorder::loop()
 
         uint32_t slot_index = 0;
         uint32_t ring_idx = 0;
+        bool slot_had_valid_frame = false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             ring_idx = ping_pong_ ? active_ring_.load() : 0U;
@@ -333,6 +334,7 @@ void RamCircularRawRecorder::loop()
             // partially overwritten old frame. The ring has spare capacity for
             // the production window, so invalidating one soon-to-be-overwritten
             // slot is preferable to holding the mutex during xiGetImage().
+            slot_had_valid_frame = rings_[ring_idx][slot_index].valid;
             rings_[ring_idx][slot_index].valid = false;
         }
 
@@ -365,6 +367,28 @@ void RamCircularRawRecorder::loop()
         const uint64_t utc_ns_after_grab = ok ? systemUtcNowNs() : 0ULL;
 
         if (!ok || w <= 0 || h <= 0) {
+            if (!ok && slot_had_valid_frame) {
+                // grabPackedInto() failed (e.g. a hardware-trigger timeout) before
+                // writing anything into slot.data/.frame_index, so the slot still
+                // holds its previous frame untouched -- restore the validity we
+                // preemptively cleared above rather than leaving that frame
+                // permanently erased. Without this, a continue_acquisition dump
+                // whose ring-swap lands in this exact window (which it reliably
+                // does: camera_control's synchronized-dump procedure disables the
+                // triggerbox output right before every dump, which is exactly
+                // what causes this grab to time out) always targets this ring's
+                // oldest resident frame -- i.e. the ring's write cursor and the
+                // dump window's first frame are mathematically the same slot --
+                // and fails with "Frame_index N was not found in RAM buffer."
+                // Confirmed against real XIMEA hardware on ros2test, 2026-08-28:
+                // every continue_acquisition dump in that session failed this way.
+                // Only restore if the slot actually held a real frame before
+                // (slot_had_valid_frame) -- on this ring's very first-ever write
+                // to a given slot, .valid was already false and there is nothing
+                // to restore.
+                std::lock_guard<std::mutex> lock(mutex_);
+                rings_[ring_idx][slot_index].valid = true;
+            }
             if (hardware_trigger_) {
                 const auto now = std::chrono::steady_clock::now();
                 if (now - last_timeout_warn >= std::chrono::duration<double>(timeout_warn_interval_s_)) {

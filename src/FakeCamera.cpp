@@ -88,6 +88,7 @@ void FakeCamera::configure(const CameraSettings& requested_settings)
     height_ = static_cast<int>(requested_settings.getOr<int64_t>("camera.height", height_));
     fps_ = static_cast<int>(requested_settings.getOr<double>("camera.fps", static_cast<double>(fps_)));
     realtime_pacing_ = requested_settings.getOr<bool>("fake.realtime_pacing", realtime_pacing_);
+    fail_grab_every_n_attempts_ = requested_settings.getOr<int64_t>("fake.fail_grab_every_n_attempts", int64_t{0});
     std::cout << "[fakecam] realtime_pacing="
           << (realtime_pacing_ ? "true" : "false")
           << ", fps=" << fps_
@@ -126,6 +127,7 @@ void FakeCamera::open(int /*device_index*/)
 {
     resizeBuffer();
     frame_counter_ = 0;
+    grab_attempt_counter_ = 0;
     opened_ = true;
 }
 
@@ -159,6 +161,14 @@ bool FakeCamera::grab(uint8_t*& data,
                       int /*timeout_ms*/)
 {
     if (!running_) {
+        return false;
+    }
+
+    ++grab_attempt_counter_;
+    if (fail_grab_every_n_attempts_ > 0 &&
+        (grab_attempt_counter_ % static_cast<uint64_t>(fail_grab_every_n_attempts_)) == 0) {
+        // Simulated grab timeout: return failure without producing a frame or
+        // advancing frame_counter_, same as a real backend's grab timeout.
         return false;
     }
 
