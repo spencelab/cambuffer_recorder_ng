@@ -1,6 +1,6 @@
-cambuffer_recorder_ng:
+/**:
   ros__parameters:
-    backend: "xiapi"
+    backend: "ximea"
     mode: "raw8mono_rolling"
 
     camera.width: 2048
@@ -25,7 +25,7 @@ cambuffer_recorder_ng:
     ximea.acq_buffer_size_bytes: 805306368  # 768 MiB
     ximea.buffers_queue_size: 384
 
-    output.dir: "/tmp"
+    output.dir: "/home/spencelab/camera_sessions"
     output.prefix: "ximea_hwtrig_raw8mono_rolling"
 
     rolling.max_file_gib: 2.0
