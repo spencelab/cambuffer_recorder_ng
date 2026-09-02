@@ -37,12 +37,15 @@
     rolling.max_file_gib: 2.0
     rolling.pack_rows: true
 
-    # RAM dumps can afford CRC because acquisition is paused while writing.
     # Direct rolling defaults CRC off unless explicitly enabled.
     raw.payload_crc32_enabled: false
 
     ram_buffer.capacity_frames: 1000
-    ram_buffer.dump_policy: "pause_acquisition"
+    # ros2test 250 Hz/triggerbox pilot for the ping-pong RAM buffer feature
+    # (PINGPONG_GUI_PLAN.md section 1). Every other rig/config stays on the
+    # default "pause_acquisition" - this is a per-pilot-config change, not a
+    # lab-wide default flip.
+    ram_buffer.dump_policy: "continue_acquisition"
     # Lab naming: post_trigger means the event already happened, so dump the
     # previous window ending at the software trigger/request.
     # Other options: "mid_trigger" and "pre_trigger".
